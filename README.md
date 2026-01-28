@@ -6,15 +6,17 @@ Zero-configuration AOT-compatible JSON serializer for .NET, built on System.Text
 
 - **Zero Configuration**: Automatically detects types from `FastJson.Serialize<T>()` and `FastJson.Deserialize<T>()` calls
 - **AOT Compatible**: Full Native AOT support with compile-time code generation
-- **High Performance**: Leverages System.Text.Json's source-generated serialization
+- **High Performance**: Direct Utf8JsonWriter calls with ArrayPool-based buffer pooling
 - **Incremental Generator**: Fast rebuild times with smart caching
-- **Rich Attribute Support**: `[JsonPropertyName]`, `[JsonIgnore]`, `[JsonConstructor]`, `[JsonInclude]`, `[JsonPolymorphic]`
+- **Rich Attribute Support**: `[JsonPropertyName]`, `[JsonIgnore]`, `[JsonConstructor]`, `[JsonInclude]`, `[JsonPolymorphic]`, `[JsonNaming]`
+- **Flexible Naming**: SnakeCase, KebabCase, CamelCase with case-insensitive matching
+- **Dynamic JSON**: JsonNode property support for mixed static/dynamic data
 - **Comprehensive Analyzer**: Compile-time diagnostics for common mistakes
 
 ## Installation
 
 ```bash
-dotnet add package FastJson
+dotnet add package MoonJM98.FastJson
 ```
 
 ## Quick Start
@@ -49,8 +51,21 @@ That's it! No manual type registration, no attributes required for basic usage.
 // Serialize object to JSON string
 string json = FastJson.Serialize<T>(T value);
 
+// Serialize object to UTF-8 byte array
+byte[] bytes = FastJson.SerializeToUtf8Bytes<T>(T value);
+
+// Serialize object to pre-allocated span (returns bytes written)
+int written = FastJson.Serialize<T>(T value, Span<byte> destination);
+
 // Deserialize JSON string to object
 T? obj = FastJson.Deserialize<T>(string json);
+
+// Deserialize UTF-8 bytes to object
+T? obj = FastJson.Deserialize<T>(ReadOnlySpan<byte> utf8Json);
+
+// Deserialize to dynamic JsonNode
+JsonNode? node = FastJson.Deserialize(string json);
+JsonNode? node = FastJson.Deserialize(ReadOnlySpan<byte> utf8Json);
 ```
 
 ### Asynchronous Methods
@@ -182,6 +197,84 @@ public class Event
 }
 ```
 
+## JsonNaming Support
+
+FastJson provides flexible property naming with the `[JsonNaming]` attribute:
+
+### NamingPolicy
+
+```csharp
+using FastJson;
+
+// SnakeCase: UserName -> user_name
+[JsonNaming(NamingPolicy.SnakeCase)]
+public class SnakeCaseModel
+{
+    public string UserName { get; set; }
+    public int UserId { get; set; }
+}
+// Output: {"user_name":"john","user_id":123}
+
+// KebabCase: UserName -> user-name
+[JsonNaming(NamingPolicy.KebabCase)]
+public class KebabCaseModel
+{
+    public string FirstName { get; set; }
+    public string LastName { get; set; }
+}
+// Output: {"first-name":"John","last-name":"Doe"}
+```
+
+### Flexible Deserialization
+
+Enable case-insensitive or special-character-ignoring matching:
+
+```csharp
+// IgnoreCase: matches "USERNAME", "UserName", "username"
+[JsonNaming(NamingPolicy.CamelCase, IgnoreCase = true)]
+public class FlexibleModel
+{
+    public string UserName { get; set; }
+}
+
+// IgnoreSpecialCharacters: matches "user_name", "user-name", "userName"
+[JsonNaming(NamingPolicy.CamelCase, IgnoreSpecialCharacters = true)]
+public class VeryFlexibleModel
+{
+    public string UserName { get; set; }
+}
+
+// Both work:
+var json1 = "{\"USERNAME\":\"Alice\"}";
+var json2 = "{\"user_name\":\"Bob\"}";
+```
+
+## JsonNode Property Support
+
+Mix static typing with dynamic JSON data:
+
+```csharp
+using System.Text.Json.Nodes;
+
+public class DynamicModel
+{
+    public string Name { get; set; }
+    public JsonNode? Extra { get; set; }  // Dynamic JSON data
+}
+
+var model = new DynamicModel
+{
+    Name = "Test",
+    Extra = JsonNode.Parse("{\"foo\":\"bar\",\"count\":123}")
+};
+
+string json = FastJson.Serialize(model);
+// {"name":"Test","extra":{"foo":"bar","count":123}}
+
+var restored = FastJson.Deserialize<DynamicModel>(json);
+string foo = restored.Extra["foo"].GetValue<string>(); // "bar"
+```
+
 ## Polymorphism Support
 
 FastJson supports polymorphic serialization with `[JsonPolymorphic]` and `[JsonDerivedType]`:
@@ -285,7 +378,7 @@ FastJson is fully compatible with .NET Native AOT:
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="FastJson" Version="0.0.0.1" />
+    <PackageReference Include="MoonJM98.FastJson" Version="0.0.0.5" />
   </ItemGroup>
 </Project>
 ```
@@ -313,7 +406,8 @@ internal partial class FastJsonContext : JsonSerializerContext { }
 ## Limitations
 
 - Type arguments must be known at compile time (no `FastJson.Serialize<T>()` with open generic `T`)
-- Unsupported types: `object`, `dynamic`, anonymous types, delegates, pointers, `Span<T>`
+- Unsupported types: `object`, `dynamic`, delegates, pointers, `Span<T>`
+- Anonymous types: serialization only (deserialization not supported)
 - Maximum 500 types per compilation unit
 - Maximum 20 levels of type nesting
 
