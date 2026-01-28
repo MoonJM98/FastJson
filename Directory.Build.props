@@ -11,8 +11,8 @@
     <Authors>FastJson Contributors</Authors>
     <Description>Zero-configuration AOT-compatible JSON serializer for .NET, built on System.Text.Json source generators.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/example/FastJson</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/example/FastJson</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/MoonJM98/FastJson</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/MoonJM98/FastJson</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>json;serialization;aot;source-generator;system-text-json</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
