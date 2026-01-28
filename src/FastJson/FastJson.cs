@@ -1,6 +1,8 @@
 using System;
 using System.ComponentModel;
 using System.IO;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -11,82 +13,68 @@ namespace FastJson;
 /// </summary>
 public static class FastJson
 {
-    // Delegates that will be set by the source generator via module initializer
-    private static Func<object?, Type, string>? _serializeFunc;
-    private static Func<string, Type, object?>? _deserializeFunc;
-    private static Func<Stream, object?, Type, CancellationToken, Task>? _serializeAsyncFunc;
-    private static Func<Stream, Type, CancellationToken, ValueTask<object?>>? _deserializeAsyncFunc;
+    private static bool _initialized;
 
     /// <summary>
-    /// Configures FastJson with the generated serialization functions.
-    /// This method is called automatically by the source generator's module initializer.
+    /// Marks FastJson as initialized. Called by the source generator's module initializer.
     /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public static void Configure(
-        Func<object?, Type, string> serializeFunc,
-        Func<string, Type, object?> deserializeFunc,
-        Func<Stream, object?, Type, CancellationToken, Task> serializeAsyncFunc,
-        Func<Stream, Type, CancellationToken, ValueTask<object?>> deserializeAsyncFunc)
-    {
-        _serializeFunc = serializeFunc;
-        _deserializeFunc = deserializeFunc;
-        _serializeAsyncFunc = serializeAsyncFunc;
-        _deserializeAsyncFunc = deserializeAsyncFunc;
-    }
+    public static void MarkInitialized() => _initialized = true;
 
     /// <summary>
     /// Serializes the specified value to a JSON string.
     /// </summary>
-    /// <typeparam name="T">The type of the value to serialize.</typeparam>
-    /// <param name="value">The value to serialize.</param>
-    /// <returns>A JSON string representation of the value.</returns>
     public static string Serialize<T>(T value)
     {
-        if (_serializeFunc is null)
-            ThrowNotInitialized();
-        return _serializeFunc!(value, typeof(T));
+        var typeInfo = FastJsonCache<T>.TypeInfo;
+        if (typeInfo is null)
+        {
+            if (!_initialized) ThrowNotInitialized();
+            ThrowTypeNotRegistered<T>();
+        }
+        return JsonSerializer.Serialize(value, typeInfo!);
     }
 
     /// <summary>
     /// Deserializes the specified JSON string to an object of type T.
     /// </summary>
-    /// <typeparam name="T">The type of the object to deserialize to.</typeparam>
-    /// <param name="json">The JSON string to deserialize.</param>
-    /// <returns>The deserialized object, or null if the JSON represents null.</returns>
     public static T? Deserialize<T>(string json)
     {
-        if (_deserializeFunc is null)
-            ThrowNotInitialized();
-        return (T?)_deserializeFunc!(json, typeof(T));
+        var typeInfo = FastJsonCache<T>.TypeInfo;
+        if (typeInfo is null)
+        {
+            if (!_initialized) ThrowNotInitialized();
+            ThrowTypeNotRegistered<T>();
+        }
+        return JsonSerializer.Deserialize(json, typeInfo!);
     }
 
     /// <summary>
     /// Asynchronously serializes the specified value to a stream.
     /// </summary>
-    /// <typeparam name="T">The type of the value to serialize.</typeparam>
-    /// <param name="stream">The stream to write to.</param>
-    /// <param name="value">The value to serialize.</param>
-    /// <param name="cancellationToken">A cancellation token.</param>
     public static Task SerializeAsync<T>(Stream stream, T value, CancellationToken cancellationToken = default)
     {
-        if (_serializeAsyncFunc is null)
-            ThrowNotInitialized();
-        return _serializeAsyncFunc!(stream, value, typeof(T), cancellationToken);
+        var typeInfo = FastJsonCache<T>.TypeInfo;
+        if (typeInfo is null)
+        {
+            if (!_initialized) ThrowNotInitialized();
+            ThrowTypeNotRegistered<T>();
+        }
+        return JsonSerializer.SerializeAsync(stream, value, typeInfo!, cancellationToken);
     }
 
     /// <summary>
     /// Asynchronously deserializes the specified stream to an object of type T.
     /// </summary>
-    /// <typeparam name="T">The type of the object to deserialize to.</typeparam>
-    /// <param name="stream">The stream to read from.</param>
-    /// <param name="cancellationToken">A cancellation token.</param>
-    /// <returns>The deserialized object, or null if the JSON represents null.</returns>
-    public static async ValueTask<T?> DeserializeAsync<T>(Stream stream, CancellationToken cancellationToken = default)
+    public static ValueTask<T?> DeserializeAsync<T>(Stream stream, CancellationToken cancellationToken = default)
     {
-        if (_deserializeAsyncFunc is null)
-            ThrowNotInitialized();
-        var result = await _deserializeAsyncFunc!(stream, typeof(T), cancellationToken).ConfigureAwait(false);
-        return (T?)result;
+        var typeInfo = FastJsonCache<T>.TypeInfo;
+        if (typeInfo is null)
+        {
+            if (!_initialized) ThrowNotInitialized();
+            ThrowTypeNotRegistered<T>();
+        }
+        return JsonSerializer.DeserializeAsync(stream, typeInfo!, cancellationToken);
     }
 
     private static void ThrowNotInitialized()
@@ -95,4 +83,23 @@ public static class FastJson
             "FastJson source generator has not run. " +
             "Ensure the FastJson.Generator package is referenced and the project has been rebuilt.");
     }
+
+    private static void ThrowTypeNotRegistered<T>()
+    {
+        throw new InvalidOperationException(
+            $"Type {typeof(T)} is not registered for FastJson serialization. " +
+            $"Add [assembly: FastJsonInclude(typeof({typeof(T).Name}))] to register it.");
+    }
+}
+
+/// <summary>
+/// Generic cache for JsonTypeInfo. Set by the source generator's module initializer.
+/// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
+public static class FastJsonCache<T>
+{
+    /// <summary>
+    /// The cached JsonTypeInfo for type T.
+    /// </summary>
+    public static JsonTypeInfo<T>? TypeInfo;
 }

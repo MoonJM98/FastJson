@@ -128,25 +128,15 @@ public static class CodeEmitter
         sb.AppendLine("    [ModuleInitializer]");
         sb.AppendLine("    internal static void Initialize()");
         sb.AppendLine("    {");
-        sb.AppendLine("        FastJson.Configure(SerializeImpl, DeserializeImpl, SerializeAsyncImpl, DeserializeAsyncImpl);");
+
+        // Set FastJsonCache<T>.TypeInfo for each type
+        foreach (var type in types)
+        {
+            sb.AppendLine($"        FastJsonCache<{type.FullyQualifiedName}>.TypeInfo = FastJsonContext.{type.ContextPropertyName};");
+        }
+
+        sb.AppendLine("        FastJson.MarkInitialized();");
         sb.AppendLine("    }");
-        sb.AppendLine();
-
-        // Emit SerializeImpl - using direct JsonTypeInfo
-        EmitSerializeImpl(sb, types);
-        sb.AppendLine();
-
-        // Emit DeserializeImpl - using direct JsonTypeInfo
-        EmitDeserializeImpl(sb, types);
-        sb.AppendLine();
-
-        // Emit SerializeAsyncImpl
-        EmitSerializeAsyncImpl(sb, types);
-        sb.AppendLine();
-
-        // Emit DeserializeAsyncImpl
-        EmitDeserializeAsyncImpl(sb, types);
-
         sb.AppendLine("}");
     }
 

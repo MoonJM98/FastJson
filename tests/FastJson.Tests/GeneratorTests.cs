@@ -48,7 +48,8 @@ public class Program
 
         Assert.Contains("FastJsonTypeInfoResolver", contextCode);
         Assert.Contains("Person", contextCode);
-        Assert.Contains("SerializeImpl", contextCode);
+        Assert.Contains("FastJsonCache", contextCode);
+        Assert.Contains("MarkInitialized", contextCode);
     }
 
     [Fact]

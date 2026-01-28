@@ -103,6 +103,10 @@ public static class TypeCollector
             if (current.TypeKind == TypeKind.Error)
                 continue;
 
+            // Skip anonymous types (e.g., new { type = ..., error = ... })
+            if (current is INamedTypeSymbol { IsAnonymousType: true })
+                continue;
+
             // Check depth limit
             if (depth > TypeCollectionResult.MaxDepth)
             {
@@ -238,6 +242,10 @@ public static class TypeCollector
                 continue;
 
             if (current.TypeKind == TypeKind.Error)
+                continue;
+
+            // Skip anonymous types (e.g., new { type = ..., error = ... })
+            if (current is INamedTypeSymbol { IsAnonymousType: true })
                 continue;
 
             visited.Add(fqn);
