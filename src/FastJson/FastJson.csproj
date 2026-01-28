@@ -4,7 +4,7 @@
     <TargetFramework>net8.0</TargetFramework>
 
     <!-- NuGet Package -->
-    <PackageId>FastJson</PackageId>
+    <PackageId>MoonJM98.FastJson</PackageId>
     <Version>0.0.0.1</Version>
 
     <!-- Include Generator -->
