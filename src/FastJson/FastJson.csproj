@@ -1,18 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
 
     <!-- NuGet Package -->
     <PackageId>MoonJM98.FastJson</PackageId>
-    <Version>0.0.0.1</Version>
+    <Version>0.0.0.2</Version>
 
     <!-- Include Generator -->
     <IncludeBuildOutput>true</IncludeBuildOutput>
     <DevelopmentDependency>false</DevelopmentDependency>
+
+    <!-- Disable warning for System.Text.Json being trimmed -->
+    <NoWarn>$(NoWarn);NU1510</NoWarn>
   </PropertyGroup>
 
-  <ItemGroup>
+  <!-- System.Text.Json - only needed for net8.0, included in net9.0+ -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
 
