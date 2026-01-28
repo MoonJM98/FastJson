@@ -46,10 +46,12 @@ public class Program
 
         var contextCode = generatedTrees.First(t => t.FilePath.Contains("FastJsonContext")).ToString();
 
-        Assert.Contains("FastJsonTypeInfoResolver", contextCode);
-        Assert.Contains("Person", contextCode);
-        Assert.Contains("FastJsonCache", contextCode);
-        Assert.Contains("MarkInitialized", contextCode);
+        // Check for v2 generated code patterns
+        Assert.Contains("FastJsonProps", contextCode);  // Pre-encoded property names
+        Assert.Contains("PersonSerializer", contextCode);  // Type-specific serializer
+        Assert.Contains("PersonDeserializer", contextCode);  // Type-specific deserializer
+        Assert.Contains("FastJsonWriter<", contextCode);  // Writer delegate registration
+        Assert.Contains("FastJsonReader<", contextCode);  // Reader delegate registration
     }
 
     [Fact]

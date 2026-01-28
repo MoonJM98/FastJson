@@ -110,6 +110,26 @@ public readonly struct TypeModel : IEquatable<TypeModel>
     /// </summary>
     public bool IsAbstract { get; }
 
+    /// <summary>
+    /// Gets the naming policy for property names during serialization.
+    /// </summary>
+    public int NamingPolicy { get; }
+
+    /// <summary>
+    /// Gets whether property name matching should be case-insensitive during deserialization.
+    /// </summary>
+    public bool IgnoreCase { get; }
+
+    /// <summary>
+    /// Gets whether property name matching should ignore special characters during deserialization.
+    /// </summary>
+    public bool IgnoreSpecialCharacters { get; }
+
+    /// <summary>
+    /// Gets whether this is an anonymous type (write-only serialization).
+    /// </summary>
+    public bool IsAnonymous { get; }
+
     public TypeModel(
         string fullyQualifiedName,
         string typeName,
@@ -129,7 +149,11 @@ public readonly struct TypeModel : IEquatable<TypeModel>
         bool isPolymorphic = false,
         string? typeDiscriminatorPropertyName = null,
         EquatableArray<DerivedTypeModel>? derivedTypes = null,
-        bool isAbstract = false)
+        bool isAbstract = false,
+        int namingPolicy = 0,
+        bool ignoreCase = false,
+        bool ignoreSpecialCharacters = false,
+        bool isAnonymous = false)
     {
         FullyQualifiedName = fullyQualifiedName;
         TypeName = typeName;
@@ -150,6 +174,10 @@ public readonly struct TypeModel : IEquatable<TypeModel>
         TypeDiscriminatorPropertyName = typeDiscriminatorPropertyName;
         DerivedTypes = derivedTypes ?? EquatableArray<DerivedTypeModel>.Empty;
         IsAbstract = isAbstract;
+        NamingPolicy = namingPolicy;
+        IgnoreCase = ignoreCase;
+        IgnoreSpecialCharacters = ignoreSpecialCharacters;
+        IsAnonymous = isAnonymous;
         ContextPropertyName = GenerateContextPropertyName(fullyQualifiedName, typeName);
     }
 
@@ -201,7 +229,11 @@ public readonly struct TypeModel : IEquatable<TypeModel>
                IsPolymorphic == other.IsPolymorphic &&
                TypeDiscriminatorPropertyName == other.TypeDiscriminatorPropertyName &&
                DerivedTypes == other.DerivedTypes &&
-               IsAbstract == other.IsAbstract;
+               IsAbstract == other.IsAbstract &&
+               NamingPolicy == other.NamingPolicy &&
+               IgnoreCase == other.IgnoreCase &&
+               IgnoreSpecialCharacters == other.IgnoreSpecialCharacters &&
+               IsAnonymous == other.IsAnonymous;
     }
 
     public override bool Equals(object? obj)
@@ -222,6 +254,10 @@ public readonly struct TypeModel : IEquatable<TypeModel>
             hash = hash * 31 + (TypeDiscriminatorPropertyName?.GetHashCode() ?? 0);
             hash = hash * 31 + DerivedTypes.GetHashCode();
             hash = hash * 31 + IsAbstract.GetHashCode();
+            hash = hash * 31 + NamingPolicy.GetHashCode();
+            hash = hash * 31 + IgnoreCase.GetHashCode();
+            hash = hash * 31 + IgnoreSpecialCharacters.GetHashCode();
+            hash = hash * 31 + IsAnonymous.GetHashCode();
             return hash;
         }
     }

@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Xunit;
 
@@ -443,6 +444,190 @@ public class SerializationTests
         Assert.Equal("Mittens", result.Animals[1].Name);
         Assert.False(((Cat)result.Animals[1]).IsIndoor);
     }
+
+    // ============ New Feature Tests ============
+
+    [Fact]
+    public void SerializeToUtf8Bytes_SimpleObject_ReturnsBytes()
+    {
+        // Arrange
+        var person = new Person { Name = "Alice", Age = 30 };
+
+        // Act
+        var bytes = FastJson.SerializeToUtf8Bytes(person);
+
+        // Assert
+        Assert.NotNull(bytes);
+        var json = System.Text.Encoding.UTF8.GetString(bytes);
+        Assert.Contains("\"name\"", json);
+        Assert.Contains("\"Alice\"", json);
+        Assert.Contains("\"age\"", json);
+        Assert.Contains("30", json);
+    }
+
+    [Fact]
+    public void Deserialize_ToJsonNode_ReturnsValidNode()
+    {
+        // Arrange
+        var json = "{\"name\":\"Alice\",\"age\":30}";
+
+        // Act
+        var node = FastJson.Deserialize(json);
+
+        // Assert
+        Assert.NotNull(node);
+        Assert.Equal("Alice", node["name"]?.GetValue<string>());
+        Assert.Equal(30, node["age"]?.GetValue<int>());
+    }
+
+    [Fact]
+    public void Deserialize_Utf8Bytes_ToJsonNode_ReturnsValidNode()
+    {
+        // Arrange
+        var bytes = System.Text.Encoding.UTF8.GetBytes("{\"name\":\"Bob\",\"value\":42}");
+
+        // Act
+        var node = FastJson.Deserialize(bytes);
+
+        // Assert
+        Assert.NotNull(node);
+        Assert.Equal("Bob", node["name"]?.GetValue<string>());
+        Assert.Equal(42, node["value"]?.GetValue<int>());
+    }
+
+    [Fact]
+    public void Serialize_SnakeCaseModel_UsesSnakeCaseNames()
+    {
+        // Arrange
+        var model = new SnakeCaseModel
+        {
+            UserName = "john_doe",
+            UserId = 123,
+            EmailAddress = "john@example.com"
+        };
+
+        // Act
+        var json = FastJson.Serialize(model);
+
+        // Assert
+        Assert.Contains("\"user_name\"", json);
+        Assert.Contains("\"user_id\"", json);
+        Assert.Contains("\"email_address\"", json);
+        Assert.DoesNotContain("\"userName\"", json);
+        Assert.DoesNotContain("\"userId\"", json);
+    }
+
+    [Fact]
+    public void Serialize_KebabCaseModel_UsesKebabCaseNames()
+    {
+        // Arrange
+        var model = new KebabCaseModel
+        {
+            FirstName = "John",
+            LastName = "Doe"
+        };
+
+        // Act
+        var json = FastJson.Serialize(model);
+
+        // Assert
+        Assert.Contains("\"first-name\"", json);
+        Assert.Contains("\"last-name\"", json);
+        Assert.DoesNotContain("\"firstName\"", json);
+        Assert.DoesNotContain("\"lastName\"", json);
+    }
+
+    [Fact]
+    public void RoundTrip_SnakeCaseModel_PreservesData()
+    {
+        // Arrange
+        var original = new SnakeCaseModel
+        {
+            UserName = "alice",
+            UserId = 456,
+            EmailAddress = "alice@example.com"
+        };
+
+        // Act
+        var json = FastJson.Serialize(original);
+        var result = FastJson.Deserialize<SnakeCaseModel>(json);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("alice", result.UserName);
+        Assert.Equal(456, result.UserId);
+        Assert.Equal("alice@example.com", result.EmailAddress);
+    }
+
+    [Fact]
+    public void Deserialize_IgnoreCaseModel_MatchesDifferentCases()
+    {
+        // Arrange - use uppercase property names
+        var json = "{\"USERNAME\":\"Alice\",\"AGE\":30}";
+
+        // Act
+        var result = FastJson.Deserialize<IgnoreCaseModel>(json);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("Alice", result.UserName);
+        Assert.Equal(30, result.Age);
+    }
+
+    [Fact]
+    public void Deserialize_FlexibleModel_MatchesWithSpecialCharacters()
+    {
+        // Arrange - use snake_case and kebab-case in JSON
+        var json = "{\"user_name\":\"Bob\",\"user-id\":42}";
+
+        // Act
+        var result = FastJson.Deserialize<FlexibleModel>(json);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("Bob", result.UserName);
+        Assert.Equal(42, result.UserId);
+    }
+
+    [Fact]
+    public void RoundTrip_DynamicModel_PreservesJsonNode()
+    {
+        // Arrange
+        var model = new DynamicModel
+        {
+            Name = "Test",
+            Extra = JsonNode.Parse("{\"foo\":\"bar\",\"count\":123}")
+        };
+
+        // Act
+        var json = FastJson.Serialize(model);
+        var result = FastJson.Deserialize<DynamicModel>(json);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("Test", result.Name);
+        Assert.NotNull(result.Extra);
+        Assert.Equal("bar", result.Extra["foo"]?.GetValue<string>());
+        Assert.Equal(123, result.Extra["count"]?.GetValue<int>());
+    }
+
+    [Fact]
+    public void Serialize_DynamicModel_WithNullJsonNode_HandlesNull()
+    {
+        // Arrange
+        var model = new DynamicModel
+        {
+            Name = "Test",
+            Extra = null
+        };
+
+        // Act
+        var json = FastJson.Serialize(model);
+
+        // Assert
+        Assert.Contains("\"name\":\"Test\"", json);
+        // Extra should not appear when null (nullable reference type)
+    }
 }
 
 // Test models
@@ -611,4 +796,44 @@ public class Zoo
 {
     public string ZooName { get; set; } = "";
     public List<Animal>? Animals { get; set; }
+}
+
+// Test model with [JsonNaming] - SnakeCase
+[JsonNaming(NamingPolicy.SnakeCase)]
+public class SnakeCaseModel
+{
+    public string UserName { get; set; } = "";
+    public int UserId { get; set; }
+    public string EmailAddress { get; set; } = "";
+}
+
+// Test model with [JsonNaming] - KebabCase
+[JsonNaming(NamingPolicy.KebabCase)]
+public class KebabCaseModel
+{
+    public string FirstName { get; set; } = "";
+    public string LastName { get; set; } = "";
+}
+
+// Test model with [JsonNaming] - IgnoreCase
+[JsonNaming(NamingPolicy.CamelCase, IgnoreCase = true)]
+public class IgnoreCaseModel
+{
+    public string UserName { get; set; } = "";
+    public int Age { get; set; }
+}
+
+// Test model with [JsonNaming] - IgnoreSpecialCharacters
+[JsonNaming(NamingPolicy.CamelCase, IgnoreSpecialCharacters = true)]
+public class FlexibleModel
+{
+    public string UserName { get; set; } = "";
+    public int UserId { get; set; }
+}
+
+// Test model with JsonNode property
+public class DynamicModel
+{
+    public string Name { get; set; } = "";
+    public JsonNode? Extra { get; set; }
 }

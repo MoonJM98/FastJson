@@ -103,8 +103,8 @@ public static class TypeCollector
             if (current.TypeKind == TypeKind.Error)
                 continue;
 
-            // Skip anonymous types (e.g., new { type = ..., error = ... })
-            if (current is INamedTypeSymbol { IsAnonymousType: true })
+            // Skip JsonNode types - they are handled specially
+            if (IsJsonNodeType(current))
                 continue;
 
             // Check depth limit
@@ -244,8 +244,8 @@ public static class TypeCollector
             if (current.TypeKind == TypeKind.Error)
                 continue;
 
-            // Skip anonymous types (e.g., new { type = ..., error = ... })
-            if (current is INamedTypeSymbol { IsAnonymousType: true })
+            // Skip JsonNode types - they are handled specially
+            if (IsJsonNodeType(current))
                 continue;
 
             visited.Add(fqn);
@@ -399,6 +399,12 @@ public static class TypeCollector
             derivedTypes = CollectDerivedTypes(type);
         }
 
+        // Get JsonNaming options
+        var (namingPolicy, ignoreCase, ignoreSpecialCharacters) = GetJsonNamingOptions(type);
+
+        // Check for anonymous type
+        bool isAnonymous = type is INamedTypeSymbol { IsAnonymousType: true };
+
         return new TypeModel(
             fqn,
             typeName,
@@ -418,7 +424,11 @@ public static class TypeCollector
             isPolymorphic,
             typeDiscriminatorPropertyName,
             derivedTypes,
-            isAbstract);
+            isAbstract,
+            namingPolicy,
+            ignoreCase,
+            ignoreSpecialCharacters,
+            isAnonymous);
     }
 
     private static EquatableArray<PropertyModel> CollectProperties(ITypeSymbol type)
@@ -618,6 +628,53 @@ public static class TypeCollector
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Gets the JsonNaming options from the type's [JsonNaming] attribute.
+    /// Returns (namingPolicy, ignoreCase, ignoreSpecialCharacters).
+    /// </summary>
+    private static (int NamingPolicy, bool IgnoreCase, bool IgnoreSpecialCharacters) GetJsonNamingOptions(ITypeSymbol type)
+    {
+        int namingPolicy = 0; // None
+        bool ignoreCase = false;
+        bool ignoreSpecialCharacters = false;
+
+        foreach (var attr in type.GetAttributes())
+        {
+            var attrClass = attr.AttributeClass;
+            if (attrClass == null) continue;
+
+            if (attrClass.ToDisplayString() == "FastJson.JsonNamingAttribute")
+            {
+                // Get Policy from constructor argument
+                if (attr.ConstructorArguments.Length > 0)
+                {
+                    var policyArg = attr.ConstructorArguments[0];
+                    if (policyArg.Value is int policyValue)
+                    {
+                        namingPolicy = policyValue;
+                    }
+                }
+
+                // Get named arguments
+                foreach (var namedArg in attr.NamedArguments)
+                {
+                    switch (namedArg.Key)
+                    {
+                        case "IgnoreCase" when namedArg.Value.Value is bool ic:
+                            ignoreCase = ic;
+                            break;
+                        case "IgnoreSpecialCharacters" when namedArg.Value.Value is bool isc:
+                            ignoreSpecialCharacters = isc;
+                            break;
+                    }
+                }
+                break;
+            }
+        }
+
+        return (namingPolicy, ignoreCase, ignoreSpecialCharacters);
     }
 
     /// <summary>
@@ -1026,5 +1083,24 @@ public static class TypeCollector
                 i.ContainingNamespace?.ToDisplayString() == "System.Collections.Generic");
         }
         return false;
+    }
+
+    /// <summary>
+    /// Checks if the type is a JsonNode type (JsonNode, JsonObject, JsonArray, JsonValue).
+    /// These types are handled specially and should not be collected for code generation.
+    /// </summary>
+    public static bool IsJsonNodeType(ITypeSymbol type)
+    {
+        var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var normalized = fqn.StartsWith("global::") ? fqn.Substring(8) : fqn;
+
+        return normalized == "System.Text.Json.Nodes.JsonNode" ||
+               normalized == "System.Text.Json.Nodes.JsonObject" ||
+               normalized == "System.Text.Json.Nodes.JsonArray" ||
+               normalized == "System.Text.Json.Nodes.JsonValue" ||
+               normalized.StartsWith("System.Text.Json.Nodes.JsonNode") ||
+               normalized.StartsWith("System.Text.Json.Nodes.JsonObject") ||
+               normalized.StartsWith("System.Text.Json.Nodes.JsonArray") ||
+               normalized.StartsWith("System.Text.Json.Nodes.JsonValue");
     }
 }
