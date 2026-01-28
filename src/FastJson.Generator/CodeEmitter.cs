@@ -5,34 +5,14 @@ namespace FastJson.Generator;
 
 /// <summary>
 /// Generates AOT-compatible source code for FastJson serialization.
-/// Creates JsonTypeInfo implementations using System.Text.Json metadata APIs
-/// instead of relying on the built-in System.Text.Json source generator.
+/// Creates JsonTypeInfo implementations using System.Text.Json metadata APIs.
+/// Optimized for performance with direct JsonTypeInfo access.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The emitter generates a single file (FastJsonContext.g.cs) that contains:
-/// </para>
-/// <list type="bullet">
-///   <item>A module initializer that configures FastJson at application startup</item>
-///   <item>Configured JsonSerializerOptions with a custom IJsonTypeInfoResolver</item>
-///   <item>Type-specific JsonTypeInfo&lt;T&gt; implementations for each collected type</item>
-///   <item>Property metadata for object serialization/deserialization</item>
-///   <item>Constructor parameter metadata for parameterized deserialization</item>
-///   <item>Polymorphism options for types with [JsonPolymorphic] attributes</item>
-/// </list>
-/// <para>
-/// The generated code is fully AOT-compatible and produces identical serialization
-/// results to the standard System.Text.Json source generator.
-/// </para>
-/// </remarks>
 public static class CodeEmitter
 {
     /// <summary>
     /// Emits the FastJsonContext.g.cs file containing all serialization infrastructure.
     /// </summary>
-    /// <param name="types">The collection of types to generate serialization code for.</param>
-    /// <param name="options">The serialization options from [FastJsonOptions] attribute.</param>
-    /// <returns>The complete source code for FastJsonContext.g.cs.</returns>
     public static string EmitContext(EquatableArray<TypeModel> types, FastJsonOptionsModel options)
     {
         var sb = new StringBuilder();
@@ -58,17 +38,44 @@ public static class CodeEmitter
         sb.AppendLine("namespace FastJson;");
         sb.AppendLine();
 
-        // Emit module initializer class
-        sb.AppendLine("internal static class FastJsonInitializer");
-        sb.AppendLine("{");
-        sb.AppendLine("    [ModuleInitializer]");
-        sb.AppendLine("    internal static void Initialize()");
-        sb.AppendLine("    {");
-        sb.AppendLine("        FastJson.Configure(SerializeImpl, DeserializeImpl, SerializeAsyncImpl, DeserializeAsyncImpl);");
-        sb.AppendLine("    }");
+        // Emit custom TypeInfoResolver first (needs to be before FastJsonContext for forward reference)
+        EmitTypeInfoResolver(sb, types);
         sb.AppendLine();
 
-        // Emit static options with TypeInfoResolver
+        // Emit main context class with cached JsonTypeInfo properties
+        sb.AppendLine("internal static class FastJsonContext");
+        sb.AppendLine("{");
+
+        // Emit static options (used for creating JsonTypeInfo)
+        EmitOptionsCreation(sb, options);
+        sb.AppendLine();
+
+        // Emit cached JsonTypeInfo<T> properties for each type
+        foreach (var type in types)
+        {
+            sb.AppendLine($"    private static JsonTypeInfo<{type.FullyQualifiedName}>? _{type.ContextPropertyName};");
+            sb.AppendLine($"    public static JsonTypeInfo<{type.FullyQualifiedName}> {type.ContextPropertyName} => _{type.ContextPropertyName} ??= Create_{type.ContextPropertyName}();");
+            sb.AppendLine();
+        }
+
+        // Emit Create methods for each type
+        foreach (var type in types)
+        {
+            EmitCreateTypeInfo(sb, type, options);
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("}");
+        sb.AppendLine();
+
+        // Emit module initializer
+        EmitModuleInitializer(sb, types);
+
+        return sb.ToString();
+    }
+
+    private static void EmitOptionsCreation(StringBuilder sb, FastJsonOptionsModel options)
+    {
         sb.AppendLine("    private static readonly JsonSerializerOptions _options = CreateOptions();");
         sb.AppendLine();
         sb.AppendLine("    private static JsonSerializerOptions CreateOptions()");
@@ -88,20 +95,48 @@ public static class CodeEmitter
         {
             sb.AppendLine("            ReadCommentHandling = JsonCommentHandling.Skip,");
         }
-        sb.AppendLine("            // Chain our resolver with the default resolver for primitive types");
-        sb.AppendLine("            TypeInfoResolver = JsonTypeInfoResolver.Combine(");
-        sb.AppendLine("                FastJsonTypeInfoResolver.Instance,");
-        sb.AppendLine("                new DefaultJsonTypeInfoResolver())");
+        sb.AppendLine("            TypeInfoResolver = JsonTypeInfoResolver.Combine(FastJsonTypeInfoResolver.Instance, new DefaultJsonTypeInfoResolver())");
         sb.AppendLine("        };");
         sb.AppendLine("        return options;");
         sb.AppendLine("    }");
+    }
+
+    private static void EmitTypeInfoResolver(StringBuilder sb, EquatableArray<TypeModel> types)
+    {
+        sb.AppendLine("internal sealed class FastJsonTypeInfoResolver : IJsonTypeInfoResolver");
+        sb.AppendLine("{");
+        sb.AppendLine("    public static FastJsonTypeInfoResolver Instance { get; } = new();");
+        sb.AppendLine();
+        sb.AppendLine("    public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)");
+        sb.AppendLine("    {");
+
+        foreach (var type in types)
+        {
+            sb.AppendLine($"        if (type == typeof({type.FullyQualifiedName}))");
+            sb.AppendLine($"            return FastJsonContext.{type.ContextPropertyName};");
+        }
+
+        sb.AppendLine("        return null;");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+    }
+
+    private static void EmitModuleInitializer(StringBuilder sb, EquatableArray<TypeModel> types)
+    {
+        sb.AppendLine("internal static class FastJsonInitializer");
+        sb.AppendLine("{");
+        sb.AppendLine("    [ModuleInitializer]");
+        sb.AppendLine("    internal static void Initialize()");
+        sb.AppendLine("    {");
+        sb.AppendLine("        FastJson.Configure(SerializeImpl, DeserializeImpl, SerializeAsyncImpl, DeserializeAsyncImpl);");
+        sb.AppendLine("    }");
         sb.AppendLine();
 
-        // Emit SerializeImpl
+        // Emit SerializeImpl - using direct JsonTypeInfo
         EmitSerializeImpl(sb, types);
         sb.AppendLine();
 
-        // Emit DeserializeImpl
+        // Emit DeserializeImpl - using direct JsonTypeInfo
         EmitDeserializeImpl(sb, types);
         sb.AppendLine();
 
@@ -113,78 +148,85 @@ public static class CodeEmitter
         EmitDeserializeAsyncImpl(sb, types);
 
         sb.AppendLine("}");
-        sb.AppendLine();
-
-        // Emit TypeInfoResolver
-        EmitTypeInfoResolver(sb, types, options);
-
-        return sb.ToString();
     }
 
-    private static void EmitTypeInfoResolver(StringBuilder sb, EquatableArray<TypeModel> types, FastJsonOptionsModel options)
+    private static void EmitSerializeImpl(StringBuilder sb, EquatableArray<TypeModel> types)
     {
-        sb.AppendLine("internal sealed class FastJsonTypeInfoResolver : IJsonTypeInfoResolver");
-        sb.AppendLine("{");
-        sb.AppendLine("    public static FastJsonTypeInfoResolver Instance { get; } = new();");
-        sb.AppendLine();
-        sb.AppendLine("    private readonly Dictionary<Type, JsonTypeInfo> _cache = new();");
-        sb.AppendLine("    private readonly object _lock = new();");
-        sb.AppendLine();
-        sb.AppendLine("    public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        lock (_lock)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            if (_cache.TryGetValue(type, out var cached))");
-        sb.AppendLine("                return cached;");
-        sb.AppendLine();
-        sb.AppendLine("            var info = CreateTypeInfo(type, options);");
-        sb.AppendLine("            if (info != null)");
-        sb.AppendLine("            {");
-        sb.AppendLine("                _cache[type] = info;");
-        sb.AppendLine("            }");
-        sb.AppendLine("            return info;");
-        sb.AppendLine("        }");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-        sb.AppendLine("    private JsonTypeInfo? CreateTypeInfo(Type type, JsonSerializerOptions options)");
+        sb.AppendLine("    private static string SerializeImpl(object? value, Type type)");
         sb.AppendLine("    {");
 
         foreach (var type in types)
         {
             sb.AppendLine($"        if (type == typeof({type.FullyQualifiedName}))");
-            sb.AppendLine($"            return Create_{type.ContextPropertyName}(options);");
+            sb.AppendLine($"            return JsonSerializer.Serialize(({type.FullyQualifiedName})value!, FastJsonContext.{type.ContextPropertyName});");
             sb.AppendLine();
         }
 
-        sb.AppendLine("        return null;");
+        sb.AppendLine("        throw new InvalidOperationException($\"Type {type} is not registered for FastJson serialization. Add [assembly: FastJsonInclude(typeof({type}))] to register it.\");");
         sb.AppendLine("    }");
-        sb.AppendLine();
+    }
 
-        // Emit Create methods for each type
+    private static void EmitDeserializeImpl(StringBuilder sb, EquatableArray<TypeModel> types)
+    {
+        sb.AppendLine("    private static object? DeserializeImpl(string json, Type type)");
+        sb.AppendLine("    {");
+
         foreach (var type in types)
         {
-            EmitCreateTypeInfo(sb, type, options);
+            sb.AppendLine($"        if (type == typeof({type.FullyQualifiedName}))");
+            sb.AppendLine($"            return JsonSerializer.Deserialize(json, FastJsonContext.{type.ContextPropertyName});");
             sb.AppendLine();
         }
 
-        sb.AppendLine("}");
+        sb.AppendLine("        throw new InvalidOperationException($\"Type {type} is not registered for FastJson deserialization. Add [assembly: FastJsonInclude(typeof({type}))] to register it.\");");
+        sb.AppendLine("    }");
+    }
+
+    private static void EmitSerializeAsyncImpl(StringBuilder sb, EquatableArray<TypeModel> types)
+    {
+        sb.AppendLine("    private static Task SerializeAsyncImpl(Stream stream, object? value, Type type, CancellationToken cancellationToken)");
+        sb.AppendLine("    {");
+
+        foreach (var type in types)
+        {
+            sb.AppendLine($"        if (type == typeof({type.FullyQualifiedName}))");
+            sb.AppendLine($"            return JsonSerializer.SerializeAsync(stream, ({type.FullyQualifiedName})value!, FastJsonContext.{type.ContextPropertyName}, cancellationToken);");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("        throw new InvalidOperationException($\"Type {type} is not registered for FastJson serialization. Add [assembly: FastJsonInclude(typeof({type}))] to register it.\");");
+        sb.AppendLine("    }");
+    }
+
+    private static void EmitDeserializeAsyncImpl(StringBuilder sb, EquatableArray<TypeModel> types)
+    {
+        sb.AppendLine("    private static async ValueTask<object?> DeserializeAsyncImpl(Stream stream, Type type, CancellationToken cancellationToken)");
+        sb.AppendLine("    {");
+
+        foreach (var type in types)
+        {
+            sb.AppendLine($"        if (type == typeof({type.FullyQualifiedName}))");
+            sb.AppendLine($"            return await JsonSerializer.DeserializeAsync(stream, FastJsonContext.{type.ContextPropertyName}, cancellationToken).ConfigureAwait(false);");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("        throw new InvalidOperationException($\"Type {type} is not registered for FastJson deserialization. Add [assembly: FastJsonInclude(typeof({type}))] to register it.\");");
+        sb.AppendLine("    }");
     }
 
     private static void EmitCreateTypeInfo(StringBuilder sb, TypeModel type, FastJsonOptionsModel options)
     {
-        sb.AppendLine($"    private static JsonTypeInfo<{type.FullyQualifiedName}> Create_{type.ContextPropertyName}(JsonSerializerOptions options)");
+        sb.AppendLine($"    private static JsonTypeInfo<{type.FullyQualifiedName}> Create_{type.ContextPropertyName}()");
         sb.AppendLine("    {");
 
-        // If type has a custom converter, use it
         if (type.ConverterTypeName != null)
         {
-            sb.AppendLine($"        return JsonMetadataServices.CreateValueInfo<{type.FullyQualifiedName}>(options, new {type.ConverterTypeName}());");
+            sb.AppendLine($"        return JsonMetadataServices.CreateValueInfo<{type.FullyQualifiedName}>(_options, new {type.ConverterTypeName}());");
             sb.AppendLine("    }");
         }
         else if (type.IsEnum)
         {
-            // Enum types - let the default resolver handle it, or use string converter if configured
-            sb.AppendLine($"        return JsonMetadataServices.CreateValueInfo<{type.FullyQualifiedName}>(options, JsonMetadataServices.GetEnumConverter<{type.FullyQualifiedName}>(options));");
+            sb.AppendLine($"        return JsonMetadataServices.CreateValueInfo<{type.FullyQualifiedName}>(_options, JsonMetadataServices.GetEnumConverter<{type.FullyQualifiedName}>(_options));");
             sb.AppendLine("    }");
         }
         else if (type.IsCollection)
@@ -194,7 +236,6 @@ public static class CodeEmitter
         }
         else
         {
-            // EmitObjectTypeInfo handles its own method closing and adds helper methods
             EmitObjectTypeInfo(sb, type, options);
         }
     }
@@ -205,42 +246,40 @@ public static class CodeEmitter
         {
             // Dictionary type
             sb.AppendLine($"        var info = JsonMetadataServices.CreateDictionaryInfo<{type.FullyQualifiedName}, {type.KeyTypeName}, {type.ValueTypeName}>(");
-            sb.AppendLine("            options,");
+            sb.AppendLine("            _options,");
             sb.AppendLine($"            new JsonCollectionInfoValues<{type.FullyQualifiedName}>()");
             sb.AppendLine("            {");
             sb.AppendLine($"                ObjectCreator = static () => new {type.FullyQualifiedName}(),");
-            sb.AppendLine($"                KeyInfo = (JsonTypeInfo<{type.KeyTypeName}>)options.GetTypeInfo(typeof({type.KeyTypeName}))!,");
-            sb.AppendLine($"                ElementInfo = (JsonTypeInfo<{type.ValueTypeName}>)options.GetTypeInfo(typeof({type.ValueTypeName}))!");
+            sb.AppendLine($"                KeyInfo = (JsonTypeInfo<{type.KeyTypeName}>)_options.GetTypeInfo(typeof({type.KeyTypeName}))!,");
+            sb.AppendLine($"                ElementInfo = (JsonTypeInfo<{type.ValueTypeName}>)_options.GetTypeInfo(typeof({type.ValueTypeName}))!");
             sb.AppendLine("            });");
         }
         else if (type.ElementTypeName != null)
         {
-            // List/Array type
             if (type.FullyQualifiedName.EndsWith("[]"))
             {
                 // Array
                 sb.AppendLine($"        var info = JsonMetadataServices.CreateArrayInfo<{type.ElementTypeName}>(");
-                sb.AppendLine("            options,");
+                sb.AppendLine("            _options,");
                 sb.AppendLine($"            new JsonCollectionInfoValues<{type.ElementTypeName}[]>()");
                 sb.AppendLine("            {");
-                sb.AppendLine($"                ElementInfo = (JsonTypeInfo<{type.ElementTypeName}>)options.GetTypeInfo(typeof({type.ElementTypeName}))!");
+                sb.AppendLine($"                ElementInfo = (JsonTypeInfo<{type.ElementTypeName}>)_options.GetTypeInfo(typeof({type.ElementTypeName}))!");
                 sb.AppendLine("            });");
             }
             else
             {
                 // List
                 sb.AppendLine($"        var info = JsonMetadataServices.CreateListInfo<{type.FullyQualifiedName}, {type.ElementTypeName}>(");
-                sb.AppendLine("            options,");
+                sb.AppendLine("            _options,");
                 sb.AppendLine($"            new JsonCollectionInfoValues<{type.FullyQualifiedName}>()");
                 sb.AppendLine("            {");
                 sb.AppendLine($"                ObjectCreator = static () => new {type.FullyQualifiedName}(),");
-                sb.AppendLine($"                ElementInfo = (JsonTypeInfo<{type.ElementTypeName}>)options.GetTypeInfo(typeof({type.ElementTypeName}))!");
+                sb.AppendLine($"                ElementInfo = (JsonTypeInfo<{type.ElementTypeName}>)_options.GetTypeInfo(typeof({type.ElementTypeName}))!");
                 sb.AppendLine("            });");
             }
         }
         else
         {
-            // Fallback for unknown collection types
             sb.AppendLine($"        throw new NotSupportedException(\"Collection type {type.FullyQualifiedName} is not supported.\");");
             sb.AppendLine($"        #pragma warning disable CS0162");
             sb.AppendLine($"        return null!;");
@@ -256,18 +295,16 @@ public static class CodeEmitter
         bool useParameterizedCtor = type.ConstructorParameters.Length > 0 && !type.HasParameterlessConstructor;
 
         sb.AppendLine($"        var info = JsonMetadataServices.CreateObjectInfo<{type.FullyQualifiedName}>(");
-        sb.AppendLine("            options,");
+        sb.AppendLine("            _options,");
         sb.AppendLine($"            new JsonObjectInfoValues<{type.FullyQualifiedName}>()");
         sb.AppendLine("            {");
 
-        // For abstract types, ObjectCreator must be null
         if (type.IsAbstract)
         {
             sb.AppendLine("                ObjectCreator = null,");
         }
         else if (useParameterizedCtor)
         {
-            // Use parameterized constructor
             sb.AppendLine("                ObjectCreator = null,");
             sb.AppendLine($"                ObjectWithParameterizedConstructorCreator = static args => Create_{type.ContextPropertyName}_FromArgs(args),");
             sb.AppendLine($"                ConstructorParameterMetadataInitializer = static () => Create_{type.ContextPropertyName}_CtorParams(),");
@@ -281,16 +318,14 @@ public static class CodeEmitter
             sb.AppendLine("                ObjectCreator = null,");
         }
 
-        // Use _ to ignore the context parameter and capture options directly
-        sb.AppendLine($"                PropertyMetadataInitializer = _ => Create_{type.ContextPropertyName}_Properties(options),");
+        sb.AppendLine($"                PropertyMetadataInitializer = _ => Create_{type.ContextPropertyName}_Properties(),");
         sb.AppendLine("                SerializeHandler = null");
         sb.AppendLine("            });");
 
-        // Add polymorphism options if this type is polymorphic
+        // Add polymorphism options if needed
         if (type.IsPolymorphic && type.DerivedTypes.Length > 0)
         {
             sb.AppendLine();
-            sb.AppendLine("        // Configure polymorphism");
             sb.AppendLine("        info.PolymorphismOptions = new JsonPolymorphismOptions");
             sb.AppendLine("        {");
             sb.AppendLine($"            TypeDiscriminatorPropertyName = \"{type.TypeDiscriminatorPropertyName ?? "$type"}\",");
@@ -333,9 +368,88 @@ public static class CodeEmitter
         }
     }
 
+    private static void EmitPropertyMetadata(StringBuilder sb, TypeModel type, FastJsonOptionsModel options)
+    {
+        sb.AppendLine($"    private static JsonPropertyInfo[] Create_{type.ContextPropertyName}_Properties()");
+        sb.AppendLine("    {");
+
+        var visibleProperties = new System.Collections.Generic.List<PropertyModel>();
+        foreach (var p in type.Properties)
+        {
+            if (!p.IsIgnored)
+                visibleProperties.Add(p);
+        }
+
+        if (visibleProperties.Count == 0)
+        {
+            sb.AppendLine("        return Array.Empty<JsonPropertyInfo>();");
+        }
+        else
+        {
+            sb.AppendLine($"        var properties = new JsonPropertyInfo[{visibleProperties.Count}];");
+            sb.AppendLine();
+
+            var index = 0;
+            foreach (var prop in visibleProperties)
+            {
+                var jsonName = prop.JsonName;
+
+                sb.AppendLine($"        properties[{index}] = JsonMetadataServices.CreatePropertyInfo<{prop.TypeFullyQualifiedName}>(");
+                sb.AppendLine("            _options,");
+                sb.AppendLine($"            new JsonPropertyInfoValues<{prop.TypeFullyQualifiedName}>()");
+                sb.AppendLine("            {");
+                sb.AppendLine($"                IsProperty = {(!prop.IsField).ToString().ToLower()},");
+                sb.AppendLine($"                IsPublic = {prop.IsPublic.ToString().ToLower()},");
+                sb.AppendLine($"                DeclaringType = typeof({type.FullyQualifiedName}),");
+                sb.AppendLine($"                PropertyName = \"{prop.Name}\",");
+                sb.AppendLine($"                JsonPropertyName = \"{jsonName}\",");
+
+                if (prop.HasGetter)
+                {
+                    sb.AppendLine($"                Getter = static obj => (({type.FullyQualifiedName})obj).{prop.Name},");
+                }
+                else
+                {
+                    sb.AppendLine("                Getter = null,");
+                }
+
+                if (prop.HasSetter && !prop.IsInitOnly)
+                {
+                    sb.AppendLine($"                Setter = static (obj, val) => (({type.FullyQualifiedName})obj).{prop.Name} = val,");
+                }
+                else
+                {
+                    sb.AppendLine("                Setter = null,");
+                }
+
+                if (prop.IsRequired)
+                {
+                    sb.AppendLine("                IsRequired = true,");
+                }
+
+                if (prop.NumberHandling != null)
+                {
+                    sb.AppendLine($"                NumberHandling = {prop.NumberHandling},");
+                }
+
+                if (prop.ConverterTypeName != null)
+                {
+                    sb.AppendLine($"                JsonTypeInfo = JsonMetadataServices.CreateValueInfo<{prop.TypeFullyQualifiedName}>(_options, new {prop.ConverterTypeName}()),");
+                }
+
+                sb.AppendLine("            });");
+                sb.AppendLine();
+                index++;
+            }
+
+            sb.AppendLine("        return properties;");
+        }
+
+        sb.AppendLine("    }");
+    }
+
     private static void EmitConstructorMethods(StringBuilder sb, TypeModel type, FastJsonOptionsModel options)
     {
-        // Emit constructor parameter metadata
         sb.AppendLine($"    private static JsonParameterInfoValues[] Create_{type.ContextPropertyName}_CtorParams()");
         sb.AppendLine("    {");
         sb.AppendLine($"        return new JsonParameterInfoValues[{type.ConstructorParameters.Length}]");
@@ -360,7 +474,6 @@ public static class CodeEmitter
         sb.AppendLine("    }");
         sb.AppendLine();
 
-        // Emit object creation from args
         sb.AppendLine($"    private static {type.FullyQualifiedName} Create_{type.ContextPropertyName}_FromArgs(object[] args)");
         sb.AppendLine("    {");
         sb.Append($"        return new {type.FullyQualifiedName}(");
@@ -376,168 +489,12 @@ public static class CodeEmitter
         sb.AppendLine("    }");
     }
 
-    private static void EmitPropertyMetadata(StringBuilder sb, TypeModel type, FastJsonOptionsModel options)
-    {
-        sb.AppendLine($"    private static JsonPropertyInfo[] Create_{type.ContextPropertyName}_Properties(JsonSerializerOptions options)");
-        sb.AppendLine("    {");
-
-        // Filter out ignored properties
-        var visibleProperties = new System.Collections.Generic.List<PropertyModel>();
-        foreach (var p in type.Properties)
-        {
-            if (!p.IsIgnored)
-                visibleProperties.Add(p);
-        }
-
-        if (visibleProperties.Count == 0)
-        {
-            sb.AppendLine("        return Array.Empty<JsonPropertyInfo>();");
-        }
-        else
-        {
-            sb.AppendLine($"        var properties = new JsonPropertyInfo[{visibleProperties.Count}];");
-            sb.AppendLine();
-
-            var index = 0;
-            foreach (var prop in visibleProperties)
-            {
-                // Use prop.JsonName which includes [JsonPropertyName] value or camelCase name
-                var jsonName = prop.JsonName;
-
-                sb.AppendLine($"        properties[{index}] = JsonMetadataServices.CreatePropertyInfo<{prop.TypeFullyQualifiedName}>(");
-                sb.AppendLine("            options,");
-                sb.AppendLine($"            new JsonPropertyInfoValues<{prop.TypeFullyQualifiedName}>()");
-                sb.AppendLine("            {");
-                sb.AppendLine($"                IsProperty = {(!prop.IsField).ToString().ToLower()},");
-                sb.AppendLine($"                IsPublic = {prop.IsPublic.ToString().ToLower()},");
-                sb.AppendLine($"                DeclaringType = typeof({type.FullyQualifiedName}),");
-                sb.AppendLine($"                PropertyName = \"{prop.Name}\",");
-                sb.AppendLine($"                JsonPropertyName = \"{jsonName}\",");
-
-                if (prop.HasGetter)
-                {
-                    sb.AppendLine($"                Getter = static obj => (({type.FullyQualifiedName})obj).{prop.Name},");
-                }
-                else
-                {
-                    sb.AppendLine("                Getter = null,");
-                }
-
-                // Don't generate setter for init-only properties (records) - they can only be set via constructor
-                if (prop.HasSetter && !prop.IsInitOnly)
-                {
-                    sb.AppendLine($"                Setter = static (obj, val) => (({type.FullyQualifiedName})obj).{prop.Name} = val,");
-                }
-                else
-                {
-                    sb.AppendLine("                Setter = null,");
-                }
-
-                if (prop.IsRequired)
-                {
-                    sb.AppendLine("                IsRequired = true,");
-                }
-
-                if (prop.NumberHandling != null)
-                {
-                    sb.AppendLine($"                NumberHandling = {prop.NumberHandling},");
-                }
-
-                if (prop.ConverterTypeName != null)
-                {
-                    sb.AppendLine($"                JsonTypeInfo = JsonMetadataServices.CreateValueInfo<{prop.TypeFullyQualifiedName}>(options, new {prop.ConverterTypeName}()),");
-                }
-
-                sb.AppendLine("            });");
-                sb.AppendLine();
-                index++;
-            }
-
-            sb.AppendLine("        return properties;");
-        }
-
-        sb.AppendLine("    }");
-    }
-
     /// <summary>
-    /// Emits the FastJson.g.cs file - not needed in the new approach, returns empty string.
+    /// No longer needed - returns empty string.
     /// </summary>
     public static string EmitWrapper(EquatableArray<TypeModel> types)
     {
-        // No longer needed - all implementation is in the context file
         return string.Empty;
-    }
-
-    private static void EmitSerializeImpl(StringBuilder sb, EquatableArray<TypeModel> types)
-    {
-        sb.AppendLine("    private static string SerializeImpl(object? value, Type type)");
-        sb.AppendLine("    {");
-
-        foreach (var type in types)
-        {
-            sb.AppendLine($"        if (type == typeof({type.FullyQualifiedName}))");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            return JsonSerializer.Serialize(({type.FullyQualifiedName}?)value, _options);");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-        }
-
-        sb.AppendLine("        throw new InvalidOperationException($\"Type {type} is not registered for FastJson serialization. Add [assembly: FastJsonInclude(typeof({type}))] to register it.\");");
-        sb.AppendLine("    }");
-    }
-
-    private static void EmitDeserializeImpl(StringBuilder sb, EquatableArray<TypeModel> types)
-    {
-        sb.AppendLine("    private static object? DeserializeImpl(string json, Type type)");
-        sb.AppendLine("    {");
-
-        foreach (var type in types)
-        {
-            sb.AppendLine($"        if (type == typeof({type.FullyQualifiedName}))");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            return JsonSerializer.Deserialize<{type.FullyQualifiedName}>(json, _options);");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-        }
-
-        sb.AppendLine("        throw new InvalidOperationException($\"Type {type} is not registered for FastJson deserialization. Add [assembly: FastJsonInclude(typeof({type}))] to register it.\");");
-        sb.AppendLine("    }");
-    }
-
-    private static void EmitSerializeAsyncImpl(StringBuilder sb, EquatableArray<TypeModel> types)
-    {
-        sb.AppendLine("    private static Task SerializeAsyncImpl(Stream stream, object? value, Type type, CancellationToken cancellationToken)");
-        sb.AppendLine("    {");
-
-        foreach (var type in types)
-        {
-            sb.AppendLine($"        if (type == typeof({type.FullyQualifiedName}))");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            return JsonSerializer.SerializeAsync(stream, ({type.FullyQualifiedName}?)value, _options, cancellationToken);");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-        }
-
-        sb.AppendLine("        throw new InvalidOperationException($\"Type {type} is not registered for FastJson serialization. Add [assembly: FastJsonInclude(typeof({type}))] to register it.\");");
-        sb.AppendLine("    }");
-    }
-
-    private static void EmitDeserializeAsyncImpl(StringBuilder sb, EquatableArray<TypeModel> types)
-    {
-        sb.AppendLine("    private static async ValueTask<object?> DeserializeAsyncImpl(Stream stream, Type type, CancellationToken cancellationToken)");
-        sb.AppendLine("    {");
-
-        foreach (var type in types)
-        {
-            sb.AppendLine($"        if (type == typeof({type.FullyQualifiedName}))");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            return await JsonSerializer.DeserializeAsync<{type.FullyQualifiedName}>(stream, _options, cancellationToken).ConfigureAwait(false);");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-        }
-
-        sb.AppendLine("        throw new InvalidOperationException($\"Type {type} is not registered for FastJson deserialization. Add [assembly: FastJsonInclude(typeof({type}))] to register it.\");");
-        sb.AppendLine("    }");
     }
 
     private static string GetNamingPolicyCode(string policy)
@@ -545,7 +502,7 @@ public static class CodeEmitter
         return policy switch
         {
             "CamelCase" => "JsonNamingPolicy.CamelCase",
-            "PascalCase" => "null", // null = no transformation
+            "PascalCase" => "null",
             "SnakeCaseLower" => "JsonNamingPolicy.SnakeCaseLower",
             "SnakeCaseUpper" => "JsonNamingPolicy.SnakeCaseUpper",
             "KebabCaseLower" => "JsonNamingPolicy.KebabCaseLower",
