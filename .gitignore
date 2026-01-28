@@ -1,0 +1,97 @@
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+# JetBrains Rider
+.idea/
+*.sln.iml
+
+# VS Code
+.vscode/
+
+# NuGet
+*.nupkg
+*.snupkg
+nupkg/
+packages/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+.nuget/
+nuget.config
+NuGet.Config
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+
+# .NET Core
+*.dll
+*.exe
+*.pdb
+
+# Test results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.trx
+TestResult.xml
+
+# Coverage
+*.coverage
+*.coveragexml
+coverage/
+coveragereport/
+
+# NCrunch
+_NCrunch_*/
+.*crunch*.local.xml
+nCrunchTemp_*
+
+# Benchmark results
+BenchmarkDotNet.Artifacts/
+
+# PublishProfiles
+*.pubxml
+*.publishproj
+
+# User-specific files
+*.userprefs
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+nul
+
+# Rider
+*.DotSettings.user
+
+# Generated files
+*.g.cs
+*.generated.cs
+
+# Scratchpad
+scratchpad/
+
+# Claude
+.claude/

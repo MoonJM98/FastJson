@@ -1,0 +1,20 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <!-- NuGet Package Metadata -->
+  <PropertyGroup>
+    <Authors>FastJson Contributors</Authors>
+    <Description>Zero-configuration AOT-compatible JSON serializer for .NET, built on System.Text.Json source generators.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/example/FastJson</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/example/FastJson</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>json;serialization;aot;source-generator;system-text-json</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+</Project>

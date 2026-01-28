@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+
+    <!-- NuGet Package -->
+    <PackageId>FastJson</PackageId>
+    <Version>0.0.0.1</Version>
+
+    <!-- Include Generator -->
+    <IncludeBuildOutput>true</IncludeBuildOutput>
+    <DevelopmentDependency>false</DevelopmentDependency>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FastJson.Generator\FastJson.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Pack Generator as analyzer -->
+  <ItemGroup>
+    <None Include="..\FastJson.Generator\bin\$(Configuration)\net8.0\FastJson.Generator.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs"
+          Visible="false" />
+  </ItemGroup>
+
+  <!-- Include README and LICENSE in package -->
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+</Project>
