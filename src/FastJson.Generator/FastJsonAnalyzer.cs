@@ -57,14 +57,50 @@ public class FastJsonAnalyzer : DiagnosticAnalyzer
         var location = memberAccess.Name.GetLocation();
 
         // FJ001: Generic type parameter not allowed (including nested in List<T>, Dictionary<K,V>, etc.)
-        var typeParameterName = FindTypeParameter(typeArg);
-        if (typeParameterName != null)
+        // However, we allow type parameters from generic methods/classes as the generator can track
+        // concrete type arguments from call sites (e.g., WriteJson<Person>() calls)
+        var typeParameterInfo = FindTypeParameterWithSource(typeArg);
+        if (typeParameterInfo != null)
         {
-            context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.GenericTypeParameterNotAllowed,
-                location,
-                typeParameterName));
-            return;
+            var (typeParameterName, typeParameterSymbol) = typeParameterInfo.Value;
+
+            // Check if this type parameter comes from a generic method or class that we can track
+            var containingMethodSyntax = invocation.Ancestors()
+                .OfType<MethodDeclarationSyntax>()
+                .FirstOrDefault();
+
+            bool isTrackable = false;
+
+            if (containingMethodSyntax != null)
+            {
+                var containingMethod = context.SemanticModel.GetDeclaredSymbol(containingMethodSyntax);
+                if (containingMethod != null)
+                {
+                    // Method-level type parameter: WriteJson<T>(T value) => FastJson.Serialize(value)
+                    if (containingMethod.IsGenericMethod &&
+                        containingMethod.TypeParameters.Any(tp => tp.Name == typeParameterSymbol.Name))
+                    {
+                        isTrackable = true;
+                    }
+
+                    // Class-level type parameter: class Service<T> { void Write(T v) => FastJson.Serialize(v) }
+                    var containingClass = containingMethod.ContainingType;
+                    if (containingClass != null && containingClass.IsGenericType &&
+                        containingClass.TypeParameters.Any(tp => tp.Name == typeParameterSymbol.Name))
+                    {
+                        isTrackable = true;
+                    }
+                }
+            }
+
+            if (!isTrackable)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.GenericTypeParameterNotAllowed,
+                    location,
+                    typeParameterName));
+                return;
+            }
         }
 
         // FJ002: Unsupported types
@@ -98,6 +134,40 @@ public class FastJsonAnalyzer : DiagnosticAnalyzer
                 typeArg.ToDisplayString(),
                 typeArg.ContainingAssembly?.Name ?? "unknown"));
         }
+    }
+
+    /// <summary>
+    /// Recursively searches for a type parameter within a type (including generic type arguments).
+    /// Returns the name and symbol of the type parameter if found, null otherwise.
+    /// </summary>
+    private static (string Name, ITypeParameterSymbol Symbol)? FindTypeParameterWithSource(ITypeSymbol type)
+    {
+        // Direct type parameter
+        if (type is ITypeParameterSymbol typeParam)
+        {
+            return (typeParam.Name, typeParam);
+        }
+
+        // Check generic type arguments (e.g., List<T>, Dictionary<string, T>)
+        if (type is INamedTypeSymbol namedType && namedType.TypeArguments.Length > 0)
+        {
+            foreach (var typeArg in namedType.TypeArguments)
+            {
+                var found = FindTypeParameterWithSource(typeArg);
+                if (found != null)
+                {
+                    return found;
+                }
+            }
+        }
+
+        // Check array element type
+        if (type is IArrayTypeSymbol arrayType)
+        {
+            return FindTypeParameterWithSource(arrayType.ElementType);
+        }
+
+        return null;
     }
 
     /// <summary>

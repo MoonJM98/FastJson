@@ -10,9 +10,9 @@ namespace FastJson.Tests;
 public class AnalyzerTests
 {
     [Fact]
-    public async Task Analyzer_GenericTypeParameter_ReportsFJ001()
+    public async Task Analyzer_ClassLevelGenericTypeParameter_NoFJ001_WhenTrackable()
     {
-        // Arrange
+        // Arrange - 클래스 레벨 제네릭은 new Service<Person>()으로 추적 가능하므로 FJ001 발생 안함
         var source = @"
 using FastJson;
 
@@ -28,8 +28,8 @@ public class Service<T>
         // Act
         var diagnostics = await RunAnalyzer(source);
 
-        // Assert
-        Assert.Contains(diagnostics, d => d.Id == "FJ001");
+        // Assert - No FJ001 because class-level generics are trackable via instantiation
+        Assert.DoesNotContain(diagnostics, d => d.Id == "FJ001");
     }
 
     [Fact]
@@ -58,9 +58,9 @@ public class Service
     }
 
     [Fact]
-    public async Task Analyzer_DeserializeWithTypeParameter_ReportsFJ001()
+    public async Task Analyzer_DeserializeWithTypeParameter_NoFJ001_WhenTrackable()
     {
-        // Arrange
+        // Arrange - 클래스 레벨 제네릭은 추적 가능
         var source = @"
 using FastJson;
 
@@ -76,16 +76,14 @@ public class Service<T>
         // Act
         var diagnostics = await RunAnalyzer(source);
 
-        // Assert
-        var fj001 = diagnostics.Where(d => d.Id == "FJ001").ToList();
-        Assert.Single(fj001);
-        Assert.Contains("T", fj001[0].GetMessage());
+        // Assert - No FJ001 because class-level generics are trackable
+        Assert.DoesNotContain(diagnostics, d => d.Id == "FJ001");
     }
 
     [Fact]
-    public async Task Analyzer_AsyncMethodWithTypeParameter_ReportsFJ001()
+    public async Task Analyzer_AsyncMethodWithTypeParameter_NoFJ001_WhenTrackable()
     {
-        // Arrange
+        // Arrange - 클래스 레벨 제네릭은 추적 가능
         var source = @"
 using FastJson;
 using System.IO;
@@ -103,14 +101,14 @@ public class Service<T>
         // Act
         var diagnostics = await RunAnalyzer(source);
 
-        // Assert
-        Assert.Contains(diagnostics, d => d.Id == "FJ001");
+        // Assert - No FJ001 because class-level generics are trackable
+        Assert.DoesNotContain(diagnostics, d => d.Id == "FJ001");
     }
 
     [Fact]
-    public async Task Analyzer_MethodLevelGenericParameter_ReportsFJ001()
+    public async Task Analyzer_MethodLevelGenericParameter_NoFJ001_WhenTrackable()
     {
-        // Arrange - 메서드 레벨 제네릭 T 사용
+        // Arrange - 메서드 레벨 제네릭 T는 Process<Person>()으로 추적 가능
         var source = @"
 using FastJson;
 
@@ -126,14 +124,14 @@ public class Service
         // Act
         var diagnostics = await RunAnalyzer(source);
 
-        // Assert
-        Assert.Contains(diagnostics, d => d.Id == "FJ001");
+        // Assert - No FJ001 because method-level generics are trackable via invocation
+        Assert.DoesNotContain(diagnostics, d => d.Id == "FJ001");
     }
 
     [Fact]
-    public async Task Analyzer_ListOfGenericParameter_ReportsFJ001()
+    public async Task Analyzer_ListOfGenericParameter_NoFJ001_WhenTrackable()
     {
-        // Arrange - List<T>로 감싼 제네릭 사용
+        // Arrange - List<T>로 감싼 제네릭도 ProcessList<Person>()으로 추적 가능
         var source = @"
 using FastJson;
 using System.Collections.Generic;
@@ -150,14 +148,14 @@ public class Service
         // Act
         var diagnostics = await RunAnalyzer(source);
 
-        // Assert
-        Assert.Contains(diagnostics, d => d.Id == "FJ001");
+        // Assert - No FJ001 because method-level generics are trackable
+        Assert.DoesNotContain(diagnostics, d => d.Id == "FJ001");
     }
 
     [Fact]
-    public async Task Analyzer_DictionaryWithGenericValue_ReportsFJ001()
+    public async Task Analyzer_DictionaryWithGenericValue_NoFJ001_WhenTrackable()
     {
-        // Arrange - Dictionary<string, T>로 감싼 제네릭 사용
+        // Arrange - Dictionary<string, T>도 클래스 레벨 제네릭이므로 추적 가능
         var source = @"
 using FastJson;
 using System.Collections.Generic;
@@ -174,14 +172,14 @@ public class Service<T>
         // Act
         var diagnostics = await RunAnalyzer(source);
 
-        // Assert
-        Assert.Contains(diagnostics, d => d.Id == "FJ001");
+        // Assert - No FJ001 because class-level generics are trackable
+        Assert.DoesNotContain(diagnostics, d => d.Id == "FJ001");
     }
 
     [Fact]
-    public async Task Analyzer_NestedGenericWrapper_ReportsFJ001()
+    public async Task Analyzer_NestedGenericWrapper_NoFJ001_WhenTrackable()
     {
-        // Arrange - List<List<T>> 중첩 제네릭 사용
+        // Arrange - List<List<T>> 중첩 제네릭도 메서드 레벨이므로 추적 가능
         var source = @"
 using FastJson;
 using System.Collections.Generic;
@@ -198,14 +196,14 @@ public class Service
         // Act
         var diagnostics = await RunAnalyzer(source);
 
-        // Assert
-        Assert.Contains(diagnostics, d => d.Id == "FJ001");
+        // Assert - No FJ001 because method-level generics are trackable
+        Assert.DoesNotContain(diagnostics, d => d.Id == "FJ001");
     }
 
     [Fact]
-    public async Task Analyzer_GenericDeserializeWithWrapper_ReportsFJ001()
+    public async Task Analyzer_GenericDeserializeWithWrapper_NoFJ001_WhenTrackable()
     {
-        // Arrange - Deserialize<List<T>> 사용
+        // Arrange - Deserialize<List<T>>도 메서드 레벨이므로 추적 가능
         var source = @"
 using FastJson;
 using System.Collections.Generic;
@@ -222,8 +220,8 @@ public class Service
         // Act
         var diagnostics = await RunAnalyzer(source);
 
-        // Assert
-        Assert.Contains(diagnostics, d => d.Id == "FJ001");
+        // Assert - No FJ001 because method-level generics are trackable
+        Assert.DoesNotContain(diagnostics, d => d.Id == "FJ001");
     }
 
     [Fact]
