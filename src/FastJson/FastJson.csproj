@@ -5,7 +5,7 @@
 
     <!-- NuGet Package -->
     <PackageId>MoonJM98.FastJson</PackageId>
-    <Version>0.0.0.6</Version>
+    <Version>0.0.0.7</Version>
 
     <!-- Include Generator -->
     <IncludeBuildOutput>true</IncludeBuildOutput>
