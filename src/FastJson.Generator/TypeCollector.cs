@@ -361,28 +361,56 @@ public static class TypeCollector
         }
         else if (type is INamedTypeSymbol namedType)
         {
+            var typeMetadataName = namedType.OriginalDefinition.MetadataName;
+            var typeNamespace = namedType.ContainingNamespace?.ToDisplayString();
+
             // Check for dictionary type - get key/value from IDictionary<TKey, TValue> interface
             if (IsDictionaryType(namedType))
             {
-                var dictInterface = namedType.AllInterfaces.FirstOrDefault(i =>
-                    i.OriginalDefinition.MetadataName == "IDictionary`2" &&
-                    i.ContainingNamespace?.ToDisplayString() == "System.Collections.Generic");
-
-                if (dictInterface != null && dictInterface.TypeArguments.Length == 2)
+                // Check if the type itself IS a dictionary interface
+                if (typeNamespace == "System.Collections.Generic" &&
+                    (typeMetadataName == "IDictionary`2" || typeMetadataName == "IReadOnlyDictionary`2") &&
+                    namedType.TypeArguments.Length == 2)
                 {
-                    keyTypeName = GetFullyQualifiedName(dictInterface.TypeArguments[0]);
-                    valueTypeName = GetFullyQualifiedName(dictInterface.TypeArguments[1]);
+                    keyTypeName = GetFullyQualifiedName(namedType.TypeArguments[0]);
+                    valueTypeName = GetFullyQualifiedName(namedType.TypeArguments[1]);
+                }
+                else
+                {
+                    // Get key/value from the interface the type implements
+                    var dictInterface = namedType.AllInterfaces.FirstOrDefault(i =>
+                        i.ContainingNamespace?.ToDisplayString() == "System.Collections.Generic" &&
+                        (i.OriginalDefinition.MetadataName == "IDictionary`2" ||
+                         i.OriginalDefinition.MetadataName == "IReadOnlyDictionary`2"));
+
+                    if (dictInterface != null && dictInterface.TypeArguments.Length == 2)
+                    {
+                        keyTypeName = GetFullyQualifiedName(dictInterface.TypeArguments[0]);
+                        valueTypeName = GetFullyQualifiedName(dictInterface.TypeArguments[1]);
+                    }
                 }
             }
             // Check for collection type - get element from IEnumerable<T> interface
             else if (isCollection)
             {
-                var enumerableInterface = namedType.AllInterfaces.FirstOrDefault(i =>
-                    i.OriginalDefinition.SpecialType == SpecialType.System_Collections_Generic_IEnumerable_T);
-
-                if (enumerableInterface != null && enumerableInterface.TypeArguments.Length == 1)
+                // Check if the type itself IS a collection interface (e.g., IReadOnlyList<T>)
+                if (typeNamespace == "System.Collections.Generic" &&
+                    (typeMetadataName == "IList`1" || typeMetadataName == "ICollection`1" ||
+                     typeMetadataName == "IEnumerable`1" || typeMetadataName == "IReadOnlyList`1" ||
+                     typeMetadataName == "IReadOnlyCollection`1") &&
+                    namedType.TypeArguments.Length == 1)
                 {
-                    elementTypeName = GetFullyQualifiedName(enumerableInterface.TypeArguments[0]);
+                    elementTypeName = GetFullyQualifiedName(namedType.TypeArguments[0]);
+                }
+                else
+                {
+                    var enumerableInterface = namedType.AllInterfaces.FirstOrDefault(i =>
+                        i.OriginalDefinition.SpecialType == SpecialType.System_Collections_Generic_IEnumerable_T);
+
+                    if (enumerableInterface != null && enumerableInterface.TypeArguments.Length == 1)
+                    {
+                        elementTypeName = GetFullyQualifiedName(enumerableInterface.TypeArguments[0]);
+                    }
                 }
             }
         }
@@ -1067,6 +1095,17 @@ public static class TypeCollector
 
         if (type is INamedTypeSymbol namedType)
         {
+            // Check if the type itself IS a collection interface
+            var metadataName = namedType.OriginalDefinition.MetadataName;
+            var ns = namedType.ContainingNamespace?.ToDisplayString();
+            if (ns == "System.Collections.Generic" &&
+                (metadataName == "IList`1" || metadataName == "ICollection`1" ||
+                 metadataName == "IEnumerable`1" || metadataName == "IReadOnlyList`1" ||
+                 metadataName == "IReadOnlyCollection`1"))
+            {
+                return true;
+            }
+
             // Check if implements IEnumerable<T> using Roslyn's SpecialType
             // This works for all collections: List<T>, HashSet<T>, user-defined, etc.
             return namedType.AllInterfaces.Any(i =>
@@ -1078,17 +1117,26 @@ public static class TypeCollector
 
     /// <summary>
     /// Checks if the type is a dictionary type (including user-defined dictionaries).
-    /// Checks for IDictionary&lt;TKey, TValue&gt; implementation.
+    /// Checks for IDictionary&lt;TKey, TValue&gt; or IReadOnlyDictionary&lt;TKey, TValue&gt; implementation.
     /// </summary>
     public static bool IsDictionaryType(ITypeSymbol type)
     {
         if (type is INamedTypeSymbol namedType)
         {
-            // Check if implements IDictionary<TKey, TValue>
-            // IDictionary doesn't have a SpecialType, so we check by name
+            // Check if the type itself IS a dictionary interface
+            var metadataName = namedType.OriginalDefinition.MetadataName;
+            var ns = namedType.ContainingNamespace?.ToDisplayString();
+            if (ns == "System.Collections.Generic" &&
+                (metadataName == "IDictionary`2" || metadataName == "IReadOnlyDictionary`2"))
+            {
+                return true;
+            }
+
+            // Check if implements IDictionary<TKey, TValue> or IReadOnlyDictionary<TKey, TValue>
             return namedType.AllInterfaces.Any(i =>
-                i.OriginalDefinition.MetadataName == "IDictionary`2" &&
-                i.ContainingNamespace?.ToDisplayString() == "System.Collections.Generic");
+                i.ContainingNamespace?.ToDisplayString() == "System.Collections.Generic" &&
+                (i.OriginalDefinition.MetadataName == "IDictionary`2" ||
+                 i.OriginalDefinition.MetadataName == "IReadOnlyDictionary`2"));
         }
         return false;
     }

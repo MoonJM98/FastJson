@@ -628,6 +628,97 @@ public class SerializationTests
         Assert.Contains("\"name\":\"Test\"", json);
         // Extra should not appear when null (nullable reference type)
     }
+
+    [Fact]
+    public void RoundTrip_IReadOnlyList_PreservesData()
+    {
+        // Arrange
+        var log = new AuditLog
+        {
+            Entries = new List<AuditEntry>
+            {
+                new() { Message = "Created", Timestamp = new DateTime(2024, 1, 1, 10, 0, 0) },
+                new() { Message = "Updated", Timestamp = new DateTime(2024, 1, 2, 14, 30, 0) }
+            }
+        };
+
+        // Act
+        var json = FastJson.Serialize(log);
+        var result = FastJson.Deserialize<AuditLog>(json);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.NotNull(result.Entries);
+        Assert.Equal(2, result.Entries.Count);
+        Assert.Equal("Created", result.Entries[0].Message);
+        Assert.Equal("Updated", result.Entries[1].Message);
+    }
+
+    [Fact]
+    public void RoundTrip_IDictionary_PreservesData()
+    {
+        // Arrange
+        var config = new ConfigSettings
+        {
+            Settings = new Dictionary<string, string>
+            {
+                ["host"] = "localhost",
+                ["port"] = "8080"
+            },
+            Values = new Dictionary<string, int>
+            {
+                ["timeout"] = 30,
+                ["retries"] = 3
+            }
+        };
+
+        // Act
+        var json = FastJson.Serialize(config);
+        var result = FastJson.Deserialize<ConfigSettings>(json);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.NotNull(result.Settings);
+        Assert.Equal("localhost", result.Settings["host"]);
+        Assert.Equal("8080", result.Settings["port"]);
+        Assert.NotNull(result.Values);
+        Assert.Equal(30, result.Values["timeout"]);
+        Assert.Equal(3, result.Values["retries"]);
+    }
+
+    [Fact]
+    public void Deserialize_ObjectType_ReturnsJsonNode()
+    {
+        // Arrange
+        var json = "{\"name\":\"Alice\",\"age\":30}";
+
+        // Act
+        var result = FastJson.Deserialize<object>(json);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.IsAssignableFrom<JsonNode>(result);
+        var node = (JsonNode)result;
+        Assert.Equal("Alice", node["name"]?.GetValue<string>());
+        Assert.Equal(30, node["age"]?.GetValue<int>());
+    }
+
+    [Fact]
+    public void Serialize_ObjectType_SerializesValue()
+    {
+        // Arrange
+        object value = new Person { Name = "Bob", Age = 25 };
+
+        // Act
+        var json = FastJson.Serialize(value);
+
+        // Assert
+        // When serializing object type, it falls back to JsonSerializer which uses PascalCase by default
+        Assert.Contains("\"Name\"", json);
+        Assert.Contains("\"Bob\"", json);
+        Assert.Contains("\"Age\"", json);
+        Assert.Contains("25", json);
+    }
 }
 
 // Test models
@@ -836,4 +927,23 @@ public class DynamicModel
 {
     public string Name { get; set; } = "";
     public JsonNode? Extra { get; set; }
+}
+
+// Test model with IReadOnlyList property
+public class AuditLog
+{
+    public IReadOnlyList<AuditEntry>? Entries { get; set; }
+}
+
+public class AuditEntry
+{
+    public string Message { get; set; } = "";
+    public DateTime Timestamp { get; set; }
+}
+
+// Test model with IDictionary/IReadOnlyDictionary properties
+public class ConfigSettings
+{
+    public IDictionary<string, string>? Settings { get; set; }
+    public IReadOnlyDictionary<string, int>? Values { get; set; }
 }

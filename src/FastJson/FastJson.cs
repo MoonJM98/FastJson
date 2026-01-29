@@ -199,6 +199,25 @@ public static class FastJsonWriter<T>
     /// The serialization delegate for type T.
     /// </summary>
     public static Action<Utf8JsonWriter, T>? Write;
+
+    static FastJsonWriter()
+    {
+        // Register built-in handler for object type
+        if (typeof(T) == typeof(object))
+        {
+            Write = (Action<Utf8JsonWriter, T>)(object)(Action<Utf8JsonWriter, object?>)((w, v) =>
+            {
+                if (v is null)
+                {
+                    w.WriteNullValue();
+                }
+                else
+                {
+                    JsonSerializer.Serialize(w, v, v.GetType());
+                }
+            });
+        }
+    }
 }
 
 /// <summary>
@@ -217,4 +236,16 @@ public static class FastJsonReader<T>
     /// The deserialization delegate for type T.
     /// </summary>
     public static FastJsonReadDelegate<T>? Read;
+
+    static FastJsonReader()
+    {
+        // Register built-in handler for object type - returns JsonNode
+        if (typeof(T) == typeof(object))
+        {
+            Read = (FastJsonReadDelegate<T>)(object)(FastJsonReadDelegate<object?>)((ref Utf8JsonReader r) =>
+            {
+                return JsonNode.Parse(ref r);
+            });
+        }
+    }
 }

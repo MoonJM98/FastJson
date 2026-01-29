@@ -209,11 +209,8 @@ public class FastJsonAnalyzer : DiagnosticAnalyzer
     /// </summary>
     private static string? GetUnsupportedTypeReason(ITypeSymbol type)
     {
-        // object type
-        if (type.SpecialType == SpecialType.System_Object)
-        {
-            return "System.Object cannot be serialized. Use a concrete type";
-        }
+        // object type - now supported via JsonNode deserialization
+        // Users can deserialize to object and receive a JsonNode at runtime
 
         // dynamic type (represented as object with dynamic attribute)
         if (type.TypeKind == TypeKind.Dynamic)

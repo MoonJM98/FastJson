@@ -390,6 +390,86 @@ public class Program
         Assert.Contains("Person", code);
     }
 
+    [Fact]
+    public void Generator_IReadOnlyList_GeneratesListInstantiation()
+    {
+        // Arrange
+        var source = @"
+using FastJson;
+using System.Collections.Generic;
+
+public class AuditEntry { public string Message { get; set; } }
+public class AuditLog
+{
+    public IReadOnlyList<AuditEntry> Entries { get; set; }
+}
+
+public class Program
+{
+    public static void Main()
+    {
+        FastJson.FastJson.Serialize(new AuditLog());
+        FastJson.FastJson.Deserialize<AuditLog>(""{}"");
+    }
+}
+";
+
+        // Act
+        var (diagnostics, outputCompilation) = RunGenerator(source);
+
+        // Assert - No compilation errors
+        var errors = outputCompilation.GetDiagnostics()
+            .Where(d => d.Severity == DiagnosticSeverity.Error);
+        Assert.Empty(errors);
+
+        // Check generated code uses List<T> for instantiation
+        var contextTree = outputCompilation.SyntaxTrees
+            .First(t => t.FilePath.Contains("FastJsonContext"));
+        var code = contextTree.ToString();
+
+        Assert.Contains("new System.Collections.Generic.List<", code);
+    }
+
+    [Fact]
+    public void Generator_IDictionary_GeneratesDictionaryInstantiation()
+    {
+        // Arrange
+        var source = @"
+using FastJson;
+using System.Collections.Generic;
+
+public class Config
+{
+    public IDictionary<string, string> Settings { get; set; }
+    public IReadOnlyDictionary<string, int> Values { get; set; }
+}
+
+public class Program
+{
+    public static void Main()
+    {
+        FastJson.FastJson.Serialize(new Config());
+        FastJson.FastJson.Deserialize<Config>(""{}"");
+    }
+}
+";
+
+        // Act
+        var (diagnostics, outputCompilation) = RunGenerator(source);
+
+        // Assert - No compilation errors
+        var errors = outputCompilation.GetDiagnostics()
+            .Where(d => d.Severity == DiagnosticSeverity.Error);
+        Assert.Empty(errors);
+
+        var contextTree = outputCompilation.SyntaxTrees
+            .First(t => t.FilePath.Contains("FastJsonContext"));
+        var code = contextTree.ToString();
+
+        // Check generated code uses Dictionary<K,V> for instantiation
+        Assert.Contains("new System.Collections.Generic.Dictionary<", code);
+    }
+
     private static (ImmutableArray<Diagnostic>, Compilation) RunGenerator(string source)
     {
         var syntaxTree = CSharpSyntaxTree.ParseText(source);
@@ -406,6 +486,7 @@ public class Program
         var assemblyPath = System.IO.Path.GetDirectoryName(typeof(object).Assembly.Location)!;
         references.Add(MetadataReference.CreateFromFile(System.IO.Path.Combine(assemblyPath, "System.Runtime.dll")));
         references.Add(MetadataReference.CreateFromFile(System.IO.Path.Combine(assemblyPath, "System.Collections.dll")));
+        references.Add(MetadataReference.CreateFromFile(typeof(System.Text.Encodings.Web.JavaScriptEncoder).Assembly.Location));
 
         var compilation = CSharpCompilation.Create(
             "TestAssembly",

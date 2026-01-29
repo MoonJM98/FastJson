@@ -55,7 +55,9 @@ public static class CodeEmitter
         // Emit serializers for each type
         foreach (var type in types)
         {
-            if (type.IsAbstract)
+            // Collection types (including interface collections like IReadOnlyList<T>)
+            // should go through the normal serializer, not abstract serializer
+            if (type.IsAbstract && !type.IsCollection)
             {
                 EmitAbstractSerializer(sb, type, types);
             }
@@ -912,9 +914,12 @@ public static class CodeEmitter
 
         if (type.KeyTypeName != null && type.ValueTypeName != null)
         {
-            // Dictionary
+            // Dictionary - use concrete type for interfaces
+            var instantiationType = GetDictionaryInstantiationType(
+                type.FullyQualifiedName, type.KeyTypeName, type.ValueTypeName);
+
             sb.AppendLine("        if (r.TokenType != JsonTokenType.StartObject) throw new JsonException($\"Expected StartObject for dictionary, got {r.TokenType}\");");
-            sb.AppendLine($"        var result = new {type.FullyQualifiedName}();");
+            sb.AppendLine($"        var result = new {instantiationType}();");
             sb.AppendLine("        while (r.Read() && r.TokenType != JsonTokenType.EndObject)");
             sb.AppendLine("        {");
             sb.AppendLine("            if (r.TokenType != JsonTokenType.PropertyName) continue;");
@@ -943,8 +948,9 @@ public static class CodeEmitter
             }
             else
             {
-                // List
-                sb.AppendLine($"        var result = new {type.FullyQualifiedName}();");
+                // List/Collection - use List<T> as concrete implementation for interface types
+                var instantiationType = GetCollectionInstantiationType(type.FullyQualifiedName, type.ElementTypeName);
+                sb.AppendLine($"        var result = new {instantiationType}();");
                 sb.AppendLine("        while (r.Read() && r.TokenType != JsonTokenType.EndArray)");
                 sb.AppendLine("        {");
                 EmitValueRead(sb, type.ElementTypeName, "item", types, "            ");
@@ -1282,6 +1288,62 @@ public static class CodeEmitter
             "System.TimeSpan" => true,
             _ => false
         };
+    }
+
+    /// <summary>
+    /// Returns the concrete instantiation type for collection interfaces.
+    /// Interface types like IReadOnlyList&lt;T&gt; use List&lt;T&gt; as concrete implementation.
+    /// </summary>
+    private static string GetCollectionInstantiationType(string typeName, string? elementTypeName)
+    {
+        if (elementTypeName != null)
+        {
+            // Check for common interface patterns
+            if (typeName.StartsWith("System.Collections.Generic.IReadOnlyList<") ||
+                typeName.StartsWith("System.Collections.Generic.IReadOnlyCollection<") ||
+                typeName.StartsWith("System.Collections.Generic.IList<") ||
+                typeName.StartsWith("System.Collections.Generic.ICollection<") ||
+                typeName.StartsWith("System.Collections.Generic.IEnumerable<") ||
+                typeName.StartsWith("global::System.Collections.Generic.IReadOnlyList<") ||
+                typeName.StartsWith("global::System.Collections.Generic.IReadOnlyCollection<") ||
+                typeName.StartsWith("global::System.Collections.Generic.IList<") ||
+                typeName.StartsWith("global::System.Collections.Generic.ICollection<") ||
+                typeName.StartsWith("global::System.Collections.Generic.IEnumerable<") ||
+                typeName.StartsWith("IReadOnlyList<") ||
+                typeName.StartsWith("IReadOnlyCollection<") ||
+                typeName.StartsWith("IList<") ||
+                typeName.StartsWith("ICollection<") ||
+                typeName.StartsWith("IEnumerable<"))
+            {
+                return $"System.Collections.Generic.List<{elementTypeName}>";
+            }
+        }
+
+        // Concrete types use as-is
+        return typeName;
+    }
+
+    /// <summary>
+    /// Returns the concrete instantiation type for dictionary interfaces.
+    /// Interface types like IReadOnlyDictionary&lt;K,V&gt; use Dictionary&lt;K,V&gt; as concrete implementation.
+    /// </summary>
+    private static string GetDictionaryInstantiationType(string typeName, string? keyTypeName, string? valueTypeName)
+    {
+        if (keyTypeName != null && valueTypeName != null)
+        {
+            if (typeName.StartsWith("System.Collections.Generic.IDictionary<") ||
+                typeName.StartsWith("System.Collections.Generic.IReadOnlyDictionary<") ||
+                typeName.StartsWith("global::System.Collections.Generic.IDictionary<") ||
+                typeName.StartsWith("global::System.Collections.Generic.IReadOnlyDictionary<") ||
+                typeName.StartsWith("IDictionary<") ||
+                typeName.StartsWith("IReadOnlyDictionary<"))
+            {
+                return $"System.Collections.Generic.Dictionary<{keyTypeName}, {valueTypeName}>";
+            }
+        }
+
+        // Concrete types use as-is
+        return typeName;
     }
 
     private static string GetSafeTypeName(TypeModel type)

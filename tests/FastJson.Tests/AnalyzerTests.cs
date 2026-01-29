@@ -225,17 +225,17 @@ public class Service
     }
 
     [Fact]
-    public async Task Analyzer_ObjectType_ReportsFJ002()
+    public async Task Analyzer_ObjectType_NoFJ002_ReturnsJsonNode()
     {
-        // Arrange
+        // Arrange - object type is now supported via JsonNode deserialization
         var source = @"
 using FastJson;
 
 public class Service
 {
-    public string Process(object item)
+    public object? Process(string json)
     {
-        return FastJson.FastJson.Serialize<object>(item);
+        return FastJson.FastJson.Deserialize<object>(json);
     }
 }
 ";
@@ -243,10 +243,8 @@ public class Service
         // Act
         var diagnostics = await RunAnalyzer(source);
 
-        // Assert
-        var fj002 = diagnostics.Where(d => d.Id == "FJ002").ToList();
-        Assert.Single(fj002);
-        Assert.Contains("System.Object", fj002[0].GetMessage());
+        // Assert - No FJ002 error for object type (now supported)
+        Assert.DoesNotContain(diagnostics, d => d.Id == "FJ002");
     }
 
     [Fact]
