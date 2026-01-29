@@ -265,6 +265,131 @@ public class Program
         Assert.Contains("Box", code);
     }
 
+    [Fact]
+    public void Generator_GenericMethodInvocation_CollectsTypes()
+    {
+        // Arrange - WriteJson<T>() 메서드가 내부에서 FastJson.Serialize<T>()를 호출하고,
+        // 외부에서 WriteJson<Person>()으로 사용될 때 Person이 수집되어야 함
+        var source = @"
+using FastJson;
+
+public class Person { public string Name { get; set; } }
+
+public class Service
+{
+    public string WriteJson<T>(T value) => FastJson.FastJson.Serialize(value);
+    public T? ReadJson<T>(string json) => FastJson.FastJson.Deserialize<T>(json);
+}
+
+public class Program
+{
+    public static void Main()
+    {
+        var service = new Service();
+        var json = service.WriteJson<Person>(new Person());
+        var person = service.ReadJson<Person>(""{}"");
+    }
+}
+";
+
+        // Act
+        var (diagnostics, outputCompilation) = RunGenerator(source);
+
+        // Assert
+        var contextTree = outputCompilation.SyntaxTrees
+            .FirstOrDefault(t => t.FilePath.Contains("FastJsonContext"));
+
+        Assert.NotNull(contextTree);
+        var code = contextTree.ToString();
+
+        // Person이 수집되어야 함
+        Assert.Contains("Person", code);
+    }
+
+    [Fact]
+    public void Generator_GenericMethodWithListType_CollectsInnerType()
+    {
+        // Arrange - WriteJson<List<Person>>() 호출 시 Person도 수집되어야 함
+        var source = @"
+using FastJson;
+using System.Collections.Generic;
+
+public class Person { public string Name { get; set; } }
+
+public class Service
+{
+    public string WriteJson<T>(T value) => FastJson.FastJson.Serialize(value);
+}
+
+public class Program
+{
+    public static void Main()
+    {
+        var service = new Service();
+        var json = service.WriteJson<List<Person>>(new List<Person>());
+    }
+}
+";
+
+        // Act
+        var (diagnostics, outputCompilation) = RunGenerator(source);
+
+        // Assert
+        var contextTree = outputCompilation.SyntaxTrees
+            .FirstOrDefault(t => t.FilePath.Contains("FastJsonContext"));
+
+        Assert.NotNull(contextTree);
+        var code = contextTree.ToString();
+
+        // List<Person>과 Person이 수집되어야 함
+        Assert.Contains("Person", code);
+        Assert.Contains("List", code);
+    }
+
+    [Fact]
+    public void Generator_AsyncGenericMethod_CollectsTypes()
+    {
+        // Arrange - WriteJsonAsync<T>() 비동기 메서드도 추적해야 함
+        var source = @"
+using FastJson;
+using System.IO;
+using System.Threading.Tasks;
+
+public class Person { public string Name { get; set; } }
+
+public class Service
+{
+    public async Task WriteJsonAsync<T>(Stream stream, T value)
+    {
+        await FastJson.FastJson.SerializeAsync(stream, value);
+    }
+}
+
+public class Program
+{
+    public static async Task Main()
+    {
+        var service = new Service();
+        using var stream = new MemoryStream();
+        await service.WriteJsonAsync<Person>(stream, new Person());
+    }
+}
+";
+
+        // Act
+        var (diagnostics, outputCompilation) = RunGenerator(source);
+
+        // Assert
+        var contextTree = outputCompilation.SyntaxTrees
+            .FirstOrDefault(t => t.FilePath.Contains("FastJsonContext"));
+
+        Assert.NotNull(contextTree);
+        var code = contextTree.ToString();
+
+        // Person이 수집되어야 함
+        Assert.Contains("Person", code);
+    }
+
     private static (ImmutableArray<Diagnostic>, Compilation) RunGenerator(string source)
     {
         var syntaxTree = CSharpSyntaxTree.ParseText(source);

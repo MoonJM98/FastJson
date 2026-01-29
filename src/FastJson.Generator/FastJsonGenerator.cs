@@ -70,6 +70,15 @@ public class FastJsonGenerator : IIncrementalGenerator
             .Where(static t => t is not null)
             .SelectMany(static (t, _) => t!);
 
+        // Step 2.6: Collect types from generic method invocations that use FastJson internally
+        // e.g., WriteJson<Person>(value) where WriteJson<T> calls FastJson.Serialize<T>()
+        var genericMethodInvocations = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (node, _) => IsGenericMethodInvocation(node),
+                transform: static (ctx, ct) => GetTypesFromGenericMethodInvocation(ctx, ct))
+            .Where(static t => t is not null)
+            .SelectMany(static (t, _) => t!);
+
         // Step 3: Collect types from [assembly: FastJsonInclude(typeof(T))] attributes
         var includeAttributeTypes = context.SyntaxProvider
             .ForAttributeWithMetadataName(
@@ -122,13 +131,15 @@ public class FastJsonGenerator : IIncrementalGenerator
             .Combine(includeAttributeTypes.Collect())
             .Combine(resolvedTypes)
             .Combine(genericClassInstantiations.Collect())
-            .Select(static (quad, _) =>
+            .Combine(genericMethodInvocations.Collect())
+            .Select(static (quint, _) =>
             {
                 var combined = new List<ITypeSymbol>();
-                combined.AddRange(quad.Left.Left.Left);
-                combined.AddRange(quad.Left.Left.Right);
-                combined.AddRange(quad.Left.Right);
-                combined.AddRange(quad.Right);
+                combined.AddRange(quint.Left.Left.Left.Left);
+                combined.AddRange(quint.Left.Left.Left.Right);
+                combined.AddRange(quint.Left.Left.Right);
+                combined.AddRange(quint.Left.Right);
+                combined.AddRange(quint.Right);
                 return combined;
             });
 
@@ -400,6 +411,120 @@ public class FastJsonGenerator : IIncrementalGenerator
             collected.Add(arrayType.ElementType);
             CollectTypeArguments(arrayType.ElementType, collected);
         }
+    }
+
+    /// <summary>
+    /// Determines whether a syntax node is a generic method invocation (not FastJson itself).
+    /// e.g., WriteJson&lt;Person&gt;(value)
+    /// </summary>
+    private static bool IsGenericMethodInvocation(SyntaxNode node)
+    {
+        if (node is not InvocationExpressionSyntax invocation)
+            return false;
+
+        // Check for Method<T>(...) pattern
+        if (invocation.Expression is GenericNameSyntax)
+            return true;
+
+        // Check for obj.Method<T>(...) pattern
+        if (invocation.Expression is MemberAccessExpressionSyntax memberAccess &&
+            memberAccess.Name is GenericNameSyntax)
+        {
+            // Exclude FastJson.Serialize<T> - handled elsewhere
+            var memberName = memberAccess.Name.Identifier.Text;
+            if (memberName is "Serialize" or "Deserialize" or "SerializeAsync" or "DeserializeAsync")
+            {
+                return false;
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Extracts type arguments from generic method invocation if the method uses FastJson internally.
+    /// </summary>
+    private static IEnumerable<ITypeSymbol>? GetTypesFromGenericMethodInvocation(GeneratorSyntaxContext context, CancellationToken ct)
+    {
+        var invocation = (InvocationExpressionSyntax)context.Node;
+
+        // Get the method symbol
+        if (context.SemanticModel.GetSymbolInfo(invocation, ct).Symbol is not IMethodSymbol methodSymbol)
+            return null;
+
+        // Must be a generic method with type arguments
+        if (!methodSymbol.IsGenericMethod || methodSymbol.TypeArguments.Length == 0)
+            return null;
+
+        // Skip if any type argument is still a type parameter
+        if (methodSymbol.TypeArguments.Any(t => t.TypeKind == TypeKind.TypeParameter))
+            return null;
+
+        // Check if the method definition uses FastJson with its type parameter
+        if (!MethodUsesFastJsonWithTypeParameter(methodSymbol.OriginalDefinition, context.SemanticModel.Compilation, ct))
+            return null;
+
+        // Collect all type arguments recursively
+        var types = new List<ITypeSymbol>();
+        foreach (var typeArg in methodSymbol.TypeArguments)
+        {
+            types.Add(typeArg);
+            CollectTypeArguments(typeArg, types);
+        }
+        return types;
+    }
+
+    /// <summary>
+    /// Checks if a method definition uses FastJson with its type parameter.
+    /// </summary>
+    private static bool MethodUsesFastJsonWithTypeParameter(IMethodSymbol methodDefinition, Compilation compilation, CancellationToken ct)
+    {
+        if (!methodDefinition.IsGenericMethod)
+            return false;
+
+        var typeParameters = methodDefinition.TypeParameters;
+        if (typeParameters.Length == 0)
+            return false;
+
+        // Get syntax references for this method
+        foreach (var syntaxRef in methodDefinition.DeclaringSyntaxReferences)
+        {
+            var syntax = syntaxRef.GetSyntax(ct);
+            if (syntax is not MethodDeclarationSyntax methodDecl)
+                continue;
+
+            var semanticModel = compilation.GetSemanticModel(syntax.SyntaxTree);
+
+            // Find all FastJson invocations in this method
+            var invocations = methodDecl.DescendantNodes().OfType<InvocationExpressionSyntax>();
+            foreach (var invocation in invocations)
+            {
+                if (IsFastJsonInvocation(invocation))
+                {
+                    // Verify it's actually a FastJson call with a type parameter
+                    if (semanticModel.GetSymbolInfo(invocation, ct).Symbol is IMethodSymbol calledMethod)
+                    {
+                        var containingType = calledMethod.ContainingType;
+                        if (containingType?.Name == "FastJson" && containingType.ContainingNamespace?.Name == "FastJson")
+                        {
+                            // Check if the type argument is one of the method's type parameters
+                            if (calledMethod.TypeArguments.Length == 1)
+                            {
+                                var typeArg = calledMethod.TypeArguments[0];
+                                if (typeArg is ITypeParameterSymbol typeParam &&
+                                    typeParameters.Any(tp => tp.Name == typeParam.Name))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
