@@ -378,7 +378,7 @@ FastJson is fully compatible with .NET Native AOT:
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="MoonJM98.FastJson" Version="0.0.0.5" />
+    <PackageReference Include="MoonJM98.FastJson" Version="0.0.0.6" />
   </ItemGroup>
 </Project>
 ```
@@ -406,8 +406,8 @@ internal partial class FastJsonContext : JsonSerializerContext { }
 ## Limitations
 
 - Type arguments must be known at compile time (no `FastJson.Serialize<T>()` with open generic `T`)
-- Unsupported types: `object`, `dynamic`, delegates, pointers, `Span<T>`
-- Anonymous types: serialization only (deserialization not supported)
+- Unsupported types: `object`, `dynamic`, anonymous types, delegates, pointers, `Span<T>`
+- For dynamic data, use `JsonNode` properties instead of anonymous types
 - Maximum 500 types per compilation unit
 - Maximum 20 levels of type nesting
 

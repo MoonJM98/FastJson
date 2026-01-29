@@ -103,6 +103,10 @@ public static class TypeCollector
             if (current.TypeKind == TypeKind.Error)
                 continue;
 
+            // Skip anonymous types - their names are not valid C# identifiers
+            if (current is INamedTypeSymbol { IsAnonymousType: true })
+                continue;
+
             // Skip JsonNode types - they are handled specially
             if (IsJsonNodeType(current))
                 continue;
@@ -242,6 +246,10 @@ public static class TypeCollector
                 continue;
 
             if (current.TypeKind == TypeKind.Error)
+                continue;
+
+            // Skip anonymous types - their names are not valid C# identifiers
+            if (current is INamedTypeSymbol { IsAnonymousType: true })
                 continue;
 
             // Skip JsonNode types - they are handled specially
