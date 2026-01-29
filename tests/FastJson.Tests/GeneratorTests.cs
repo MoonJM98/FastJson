@@ -182,6 +182,89 @@ public class Program
         Assert.Empty(generatedTrees);
     }
 
+    [Fact]
+    public void Generator_GenericWrapperWithConcreteType_CollectsInnerType()
+    {
+        // Arrange - Wrapper<T>가 내부에서 Deserialize<T>를 호출하고,
+        // 외부에서 Wrapper<List<Person>>으로 사용될 때 List<Person>, Person이 수집되어야 함
+        var source = @"
+using FastJson;
+using System.Collections.Generic;
+
+public class Person { public string Name { get; set; } }
+
+public class Wrapper<T>
+{
+    public T? Get(string json) => FastJson.FastJson.Deserialize<T>(json);
+    public string Set(T value) => FastJson.FastJson.Serialize(value);
+}
+
+public class Program
+{
+    public static void Main()
+    {
+        var wrapper = new Wrapper<List<Person>>();
+        var people = wrapper.Get(""[]"");
+        var json = wrapper.Set(new List<Person>());
+    }
+}
+";
+
+        // Act
+        var (diagnostics, outputCompilation) = RunGenerator(source);
+
+        // Assert
+        var contextTree = outputCompilation.SyntaxTrees
+            .FirstOrDefault(t => t.FilePath.Contains("FastJsonContext"));
+
+        Assert.NotNull(contextTree);
+        var code = contextTree.ToString();
+
+        // List<Person>과 Person이 수집되어야 함
+        Assert.Contains("Person", code);
+        Assert.Contains("List", code);
+    }
+
+    [Fact]
+    public void Generator_NestedGenericWrapper_CollectsAllTypes()
+    {
+        // Arrange - Wrapper<Wrapper<T>> 같은 중첩 제네릭
+        var source = @"
+using FastJson;
+
+public class Data { public int Value { get; set; } }
+
+public class Box<T>
+{
+    public T Content { get; set; }
+    public string ToJson() => FastJson.FastJson.Serialize(this);
+}
+
+public class Program
+{
+    public static void Main()
+    {
+        var box = new Box<Box<Data>>();
+        var json = box.ToJson();
+    }
+}
+";
+
+        // Act
+        var (diagnostics, outputCompilation) = RunGenerator(source);
+
+        // Assert
+        var contextTree = outputCompilation.SyntaxTrees
+            .FirstOrDefault(t => t.FilePath.Contains("FastJsonContext"));
+
+        Assert.NotNull(contextTree);
+        var code = contextTree.ToString();
+
+        // Box<Box<Data>>와 Box<Data>, Data가 모두 수집되어야 함
+        Assert.Contains("Data", code);
+        Assert.Contains("Box", code);
+    }
+
     private static (ImmutableArray<Diagnostic>, Compilation) RunGenerator(string source)
     {
         var syntaxTree = CSharpSyntaxTree.ParseText(source);

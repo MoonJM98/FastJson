@@ -108,6 +108,125 @@ public class Service<T>
     }
 
     [Fact]
+    public async Task Analyzer_MethodLevelGenericParameter_ReportsFJ001()
+    {
+        // Arrange - 메서드 레벨 제네릭 T 사용
+        var source = @"
+using FastJson;
+
+public class Service
+{
+    public string Process<T>(T item)
+    {
+        return FastJson.FastJson.Serialize(item);
+    }
+}
+";
+
+        // Act
+        var diagnostics = await RunAnalyzer(source);
+
+        // Assert
+        Assert.Contains(diagnostics, d => d.Id == "FJ001");
+    }
+
+    [Fact]
+    public async Task Analyzer_ListOfGenericParameter_ReportsFJ001()
+    {
+        // Arrange - List<T>로 감싼 제네릭 사용
+        var source = @"
+using FastJson;
+using System.Collections.Generic;
+
+public class Service
+{
+    public string ProcessList<T>(List<T> items)
+    {
+        return FastJson.FastJson.Serialize(items);
+    }
+}
+";
+
+        // Act
+        var diagnostics = await RunAnalyzer(source);
+
+        // Assert
+        Assert.Contains(diagnostics, d => d.Id == "FJ001");
+    }
+
+    [Fact]
+    public async Task Analyzer_DictionaryWithGenericValue_ReportsFJ001()
+    {
+        // Arrange - Dictionary<string, T>로 감싼 제네릭 사용
+        var source = @"
+using FastJson;
+using System.Collections.Generic;
+
+public class Service<T>
+{
+    public string ProcessDict(Dictionary<string, T> items)
+    {
+        return FastJson.FastJson.Serialize(items);
+    }
+}
+";
+
+        // Act
+        var diagnostics = await RunAnalyzer(source);
+
+        // Assert
+        Assert.Contains(diagnostics, d => d.Id == "FJ001");
+    }
+
+    [Fact]
+    public async Task Analyzer_NestedGenericWrapper_ReportsFJ001()
+    {
+        // Arrange - List<List<T>> 중첩 제네릭 사용
+        var source = @"
+using FastJson;
+using System.Collections.Generic;
+
+public class Service
+{
+    public string Process<T>(List<List<T>> items)
+    {
+        return FastJson.FastJson.Serialize(items);
+    }
+}
+";
+
+        // Act
+        var diagnostics = await RunAnalyzer(source);
+
+        // Assert
+        Assert.Contains(diagnostics, d => d.Id == "FJ001");
+    }
+
+    [Fact]
+    public async Task Analyzer_GenericDeserializeWithWrapper_ReportsFJ001()
+    {
+        // Arrange - Deserialize<List<T>> 사용
+        var source = @"
+using FastJson;
+using System.Collections.Generic;
+
+public class Service
+{
+    public List<T>? Process<T>(string json)
+    {
+        return FastJson.FastJson.Deserialize<List<T>>(json);
+    }
+}
+";
+
+        // Act
+        var diagnostics = await RunAnalyzer(source);
+
+        // Assert
+        Assert.Contains(diagnostics, d => d.Id == "FJ001");
+    }
+
+    [Fact]
     public async Task Analyzer_ObjectType_ReportsFJ002()
     {
         // Arrange

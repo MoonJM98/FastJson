@@ -61,6 +61,15 @@ public class FastJsonGenerator : IIncrementalGenerator
             .Where(static t => t is not null)
             .Select(static (t, _) => t!);
 
+        // Step 2.5: Collect types from generic class instantiations that use FastJson internally
+        // e.g., new Wrapper<List<Person>>() where Wrapper<T> calls FastJson.Deserialize<T>()
+        var genericClassInstantiations = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (node, _) => IsGenericObjectCreation(node),
+                transform: static (ctx, ct) => GetTypesFromGenericInstantiation(ctx, ct))
+            .Where(static t => t is not null)
+            .SelectMany(static (t, _) => t!);
+
         // Step 3: Collect types from [assembly: FastJsonInclude(typeof(T))] attributes
         var includeAttributeTypes = context.SyntaxProvider
             .ForAttributeWithMetadataName(
@@ -112,12 +121,14 @@ public class FastJsonGenerator : IIncrementalGenerator
         var allDirectTypes = concreteInvocationTypes.Collect()
             .Combine(includeAttributeTypes.Collect())
             .Combine(resolvedTypes)
-            .Select(static (triple, _) =>
+            .Combine(genericClassInstantiations.Collect())
+            .Select(static (quad, _) =>
             {
                 var combined = new List<ITypeSymbol>();
-                combined.AddRange(triple.Left.Left);
-                combined.AddRange(triple.Left.Right);
-                combined.AddRange(triple.Right);
+                combined.AddRange(quad.Left.Left.Left);
+                combined.AddRange(quad.Left.Left.Right);
+                combined.AddRange(quad.Left.Right);
+                combined.AddRange(quad.Right);
                 return combined;
             });
 
@@ -313,6 +324,118 @@ public class FastJsonGenerator : IIncrementalGenerator
             return null;
 
         return typeSymbol;
+    }
+
+    /// <summary>
+    /// Determines whether a syntax node is a generic object creation expression.
+    /// e.g., new Wrapper&lt;List&lt;Person&gt;&gt;()
+    /// </summary>
+    private static bool IsGenericObjectCreation(SyntaxNode node)
+    {
+        if (node is ObjectCreationExpressionSyntax creation)
+        {
+            return creation.Type is GenericNameSyntax;
+        }
+
+        // Handle implicit object creation: Wrapper<T> x = new(...)
+        if (node is ImplicitObjectCreationExpressionSyntax)
+        {
+            return true; // Will check in transform
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Extracts type arguments from generic class instantiation if the class uses FastJson internally.
+    /// </summary>
+    private static IEnumerable<ITypeSymbol>? GetTypesFromGenericInstantiation(GeneratorSyntaxContext context, CancellationToken ct)
+    {
+        ITypeSymbol? createdType = null;
+
+        if (context.Node is ObjectCreationExpressionSyntax creation)
+        {
+            createdType = context.SemanticModel.GetTypeInfo(creation, ct).Type;
+        }
+        else if (context.Node is ImplicitObjectCreationExpressionSyntax implicitCreation)
+        {
+            createdType = context.SemanticModel.GetTypeInfo(implicitCreation, ct).Type;
+        }
+
+        if (createdType is not INamedTypeSymbol namedType)
+            return null;
+
+        if (!namedType.IsGenericType || namedType.TypeArguments.Length == 0)
+            return null;
+
+        // Check if this type or any of its members use FastJson
+        if (!TypeUsesFastJson(namedType.OriginalDefinition, context.SemanticModel.Compilation, ct))
+            return null;
+
+        // Collect all type arguments recursively
+        var types = new List<ITypeSymbol>();
+        CollectTypeArguments(namedType, types);
+        return types;
+    }
+
+    /// <summary>
+    /// Recursively collects all type arguments from a generic type.
+    /// </summary>
+    private static void CollectTypeArguments(ITypeSymbol type, List<ITypeSymbol> collected)
+    {
+        if (type is INamedTypeSymbol namedType && namedType.IsGenericType)
+        {
+            foreach (var typeArg in namedType.TypeArguments)
+            {
+                // Skip type parameters
+                if (typeArg.TypeKind == TypeKind.TypeParameter)
+                    continue;
+
+                collected.Add(typeArg);
+                CollectTypeArguments(typeArg, collected);
+            }
+        }
+        else if (type is IArrayTypeSymbol arrayType)
+        {
+            collected.Add(arrayType.ElementType);
+            CollectTypeArguments(arrayType.ElementType, collected);
+        }
+    }
+
+    /// <summary>
+    /// Checks if a type definition uses FastJson in its members.
+    /// </summary>
+    private static bool TypeUsesFastJson(INamedTypeSymbol typeDefinition, Compilation compilation, CancellationToken ct)
+    {
+        // Get syntax references for this type
+        foreach (var syntaxRef in typeDefinition.DeclaringSyntaxReferences)
+        {
+            var syntax = syntaxRef.GetSyntax(ct);
+            if (syntax is not TypeDeclarationSyntax typeDecl)
+                continue;
+
+            var semanticModel = compilation.GetSemanticModel(syntax.SyntaxTree);
+
+            // Find all FastJson invocations in this type
+            var invocations = typeDecl.DescendantNodes().OfType<InvocationExpressionSyntax>();
+            foreach (var invocation in invocations)
+            {
+                if (IsFastJsonInvocation(invocation))
+                {
+                    // Verify it's actually a FastJson call
+                    if (semanticModel.GetSymbolInfo(invocation, ct).Symbol is IMethodSymbol methodSymbol)
+                    {
+                        var containingType = methodSymbol.ContainingType;
+                        if (containingType?.Name == "FastJson" && containingType.ContainingNamespace?.Name == "FastJson")
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

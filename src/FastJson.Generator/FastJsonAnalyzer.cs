@@ -56,13 +56,14 @@ public class FastJsonAnalyzer : DiagnosticAnalyzer
         var typeArg = methodSymbol.TypeArguments[0];
         var location = memberAccess.Name.GetLocation();
 
-        // FJ001: Generic type parameter not allowed
-        if (typeArg.TypeKind == TypeKind.TypeParameter)
+        // FJ001: Generic type parameter not allowed (including nested in List<T>, Dictionary<K,V>, etc.)
+        var typeParameterName = FindTypeParameter(typeArg);
+        if (typeParameterName != null)
         {
             context.ReportDiagnostic(Diagnostic.Create(
                 DiagnosticDescriptors.GenericTypeParameterNotAllowed,
                 location,
-                typeArg.Name));
+                typeParameterName));
             return;
         }
 
@@ -97,6 +98,40 @@ public class FastJsonAnalyzer : DiagnosticAnalyzer
                 typeArg.ToDisplayString(),
                 typeArg.ContainingAssembly?.Name ?? "unknown"));
         }
+    }
+
+    /// <summary>
+    /// Recursively searches for a type parameter within a type (including generic type arguments).
+    /// Returns the name of the type parameter if found, null otherwise.
+    /// </summary>
+    private static string? FindTypeParameter(ITypeSymbol type)
+    {
+        // Direct type parameter
+        if (type.TypeKind == TypeKind.TypeParameter)
+        {
+            return type.Name;
+        }
+
+        // Check generic type arguments (e.g., List<T>, Dictionary<string, T>)
+        if (type is INamedTypeSymbol namedType && namedType.TypeArguments.Length > 0)
+        {
+            foreach (var typeArg in namedType.TypeArguments)
+            {
+                var found = FindTypeParameter(typeArg);
+                if (found != null)
+                {
+                    return found;
+                }
+            }
+        }
+
+        // Check array element type
+        if (type is IArrayTypeSymbol arrayType)
+        {
+            return FindTypeParameter(arrayType.ElementType);
+        }
+
+        return null;
     }
 
     /// <summary>
