@@ -105,6 +105,32 @@ For types from external assemblies (NuGet packages, other projects), use `[FastJ
 [assembly: FastJsonInclude(typeof(AnotherLibrary.AnotherType))]
 ```
 
+### Cross-Project Generic Method Support
+
+FastJson automatically tracks types across project boundaries. When you call a generic method from a library that references FastJson, the type arguments are automatically registered.
+
+```csharp
+// In library project (FastNode.Realtime) - references FastJson
+public class ServerSentEvent
+{
+    public static string CreateJson<T>(T data) => FastJson.Serialize(data);
+}
+```
+
+```csharp
+// In consumer project (TestProject)
+var json = ServerSentEvent.CreateJson(new MyDto());  // MyDto is auto-registered!
+```
+
+**How it works:** The generator detects that `ServerSentEvent` is in an assembly that references FastJson, so it automatically registers `MyDto` for serialization.
+
+**Optional explicit marking:** You can also use `[FastJsonMethod]` attribute for explicit documentation:
+
+```csharp
+[FastJsonMethod]  // Explicitly marks this method as using FastJson
+public static string CreateJson<T>(T data) => FastJson.Serialize(data);
+```
+
 ## Supported Attributes
 
 FastJson respects standard System.Text.Json attributes:
@@ -378,7 +404,7 @@ FastJson is fully compatible with .NET Native AOT:
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="MoonJM98.FastJson" Version="0.0.0.6" />
+    <PackageReference Include="MoonJM98.FastJson" Version="0.0.1.0" />
   </ItemGroup>
 </Project>
 ```

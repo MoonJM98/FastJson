@@ -84,9 +84,9 @@ public class FastJsonGenerator : IIncrementalGenerator
             .ForAttributeWithMetadataName(
                 fullyQualifiedMetadataName: "FastJson.FastJsonIncludeAttribute",
                 predicate: static (node, _) => true,
-                transform: static (ctx, ct) => GetTypeFromIncludeAttribute(ctx, ct))
+                transform: static (ctx, ct) => GetTypesFromIncludeAttributes(ctx, ct))
             .Where(static t => t is not null)
-            .Select(static (t, _) => t!);
+            .SelectMany(static (t, _) => t!);
 
         // Step 4: Collect options from [assembly: FastJsonOptions(...)] attribute
         var optionsProvider = context.SyntaxProvider
@@ -315,28 +315,32 @@ public class FastJsonGenerator : IIncrementalGenerator
     }
 
     /// <summary>
-    /// Extracts the type from a FastJsonInclude attribute.
+    /// Extracts types from all FastJsonInclude attributes on a target node.
     /// </summary>
     /// <param name="context">The generator attribute syntax context.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>The type symbol from the attribute, or null if extraction fails.</returns>
-    private static ITypeSymbol? GetTypeFromIncludeAttribute(GeneratorAttributeSyntaxContext context, CancellationToken ct)
+    /// <returns>All type symbols from the attributes.</returns>
+    private static IEnumerable<ITypeSymbol>? GetTypesFromIncludeAttributes(GeneratorAttributeSyntaxContext context, CancellationToken ct)
     {
-        var attribute = context.Attributes.FirstOrDefault(a =>
-            a.AttributeClass?.Name == "FastJsonIncludeAttribute");
+        var types = new List<ITypeSymbol>();
 
-        if (attribute is null)
-            return null;
+        foreach (var attribute in context.Attributes)
+        {
+            if (attribute.AttributeClass?.Name != "FastJsonIncludeAttribute")
+                continue;
 
-        // The attribute takes a single Type parameter
-        if (attribute.ConstructorArguments.Length != 1)
-            return null;
+            // The attribute takes a single Type parameter
+            if (attribute.ConstructorArguments.Length != 1)
+                continue;
 
-        var typeArg = attribute.ConstructorArguments[0];
-        if (typeArg.Value is not ITypeSymbol typeSymbol)
-            return null;
+            var typeArg = attribute.ConstructorArguments[0];
+            if (typeArg.Value is ITypeSymbol typeSymbol)
+            {
+                types.Add(typeSymbol);
+            }
+        }
 
-        return typeSymbol;
+        return types.Count > 0 ? types : null;
     }
 
     /// <summary>
@@ -416,8 +420,9 @@ public class FastJsonGenerator : IIncrementalGenerator
     }
 
     /// <summary>
-    /// Determines whether a syntax node is a generic method invocation (not FastJson itself).
-    /// e.g., WriteJson&lt;Person&gt;(value)
+    /// Determines whether a syntax node is a potential generic method invocation (not FastJson itself).
+    /// This includes both explicit generic syntax and static method calls that might be type-inferred generics.
+    /// e.g., WriteJson&lt;Person&gt;(value) or JsonHelper.CreateJson(dto)
     /// </summary>
     private static bool IsGenericMethodInvocation(SyntaxNode node)
     {
@@ -428,17 +433,36 @@ public class FastJsonGenerator : IIncrementalGenerator
         if (invocation.Expression is GenericNameSyntax)
             return true;
 
-        // Check for obj.Method<T>(...) pattern
-        if (invocation.Expression is MemberAccessExpressionSyntax memberAccess &&
-            memberAccess.Name is GenericNameSyntax)
+        // Check for obj.Method<T>(...) or Type.Method(...) pattern
+        if (invocation.Expression is MemberAccessExpressionSyntax memberAccess)
         {
-            // Exclude FastJson.Serialize<T> - handled elsewhere
-            var memberName = memberAccess.Name.Identifier.Text;
-            if (memberName is "Serialize" or "Deserialize" or "SerializeAsync" or "DeserializeAsync" or "SerializeToUtf8Bytes")
+            // If it's explicitly generic, allow (but exclude FastJson methods)
+            if (memberAccess.Name is GenericNameSyntax genericName)
             {
-                return false;
+                var memberName = genericName.Identifier.Text;
+                if (memberName is "Serialize" or "Deserialize" or "SerializeAsync" or "DeserializeAsync" or "SerializeToUtf8Bytes")
+                {
+                    return false;
+                }
+                return true;
             }
-            return true;
+
+            // For non-generic syntax, also check static method calls (Type.Method pattern)
+            // This catches type-inferred generic method calls like JsonHelper.CreateJson(dto)
+            // We limit this to identifier expressions to avoid matching instance method calls on complex expressions
+            if (memberAccess.Expression is IdentifierNameSyntax or QualifiedNameSyntax or AliasQualifiedNameSyntax)
+            {
+                // Exclude common non-generic patterns to reduce noise
+                var methodName = memberAccess.Name.Identifier.Text;
+                if (methodName is "Serialize" or "Deserialize" or "SerializeAsync" or "DeserializeAsync" or "SerializeToUtf8Bytes" or
+                    "ToString" or "GetHashCode" or "Equals" or "GetType" or "ReferenceEquals" or
+                    "WriteLine" or "Write" or "ReadLine" or "Read" or
+                    "Parse" or "TryParse")
+                {
+                    return false;
+                }
+                return true;
+            }
         }
 
         return false;
@@ -479,6 +503,8 @@ public class FastJsonGenerator : IIncrementalGenerator
 
     /// <summary>
     /// Checks if a method definition uses FastJson with its type parameter.
+    /// Also returns true if the method is marked with [FastJsonMethod] attribute,
+    /// or if it's an external method in an assembly that references FastJson.
     /// </summary>
     private static bool MethodUsesFastJsonWithTypeParameter(IMethodSymbol methodDefinition, Compilation compilation, CancellationToken ct)
     {
@@ -488,6 +514,25 @@ public class FastJsonGenerator : IIncrementalGenerator
         var typeParameters = methodDefinition.TypeParameters;
         if (typeParameters.Length == 0)
             return false;
+
+        // Check for [FastJsonMethod] attribute
+        if (methodDefinition.GetAttributes().Any(a =>
+            a.AttributeClass?.Name == "FastJsonMethodAttribute" &&
+            a.AttributeClass.ContainingNamespace?.Name == "FastJson"))
+        {
+            return true;
+        }
+
+        // For external methods (no source), check if the assembly references FastJson
+        if (methodDefinition.DeclaringSyntaxReferences.Length == 0)
+        {
+            var containingAssembly = methodDefinition.ContainingAssembly;
+            if (containingAssembly != null && AssemblyReferencesFastJson(containingAssembly))
+            {
+                return true;
+            }
+            return false;
+        }
 
         // Get syntax references for this method
         foreach (var syntaxRef in methodDefinition.DeclaringSyntaxReferences)
@@ -526,6 +571,29 @@ public class FastJsonGenerator : IIncrementalGenerator
             }
         }
 
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if an assembly references FastJson.
+    /// </summary>
+    private static bool AssemblyReferencesFastJson(IAssemblySymbol assembly)
+    {
+        // Check all modules in the assembly
+        foreach (var module in assembly.Modules)
+        {
+            foreach (var referencedAssembly in module.ReferencedAssemblySymbols)
+            {
+                // Check common FastJson assembly names
+                var name = referencedAssembly.Name;
+                if (name == "FastJson" ||
+                    name == "MoonJM98.FastJson" ||
+                    name.StartsWith("FastJson."))
+                {
+                    return true;
+                }
+            }
+        }
         return false;
     }
 
