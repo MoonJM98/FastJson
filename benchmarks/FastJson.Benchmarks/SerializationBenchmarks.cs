@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Order;
+using InlineFastJson = FastJson.Generated.FastJson_Benchmarks.FastJson;
 
 namespace FastJson.Benchmarks;
 
@@ -102,6 +103,13 @@ public class SerializationBenchmarks
         return FastJson.Serialize(_simpleObject);
     }
 
+    [Benchmark]
+    [BenchmarkCategory("Simple", "Serialize")]
+    public string FastJson_Inline_Serialize_Simple()
+    {
+        return InlineFastJson.Serialize(_simpleObject);
+    }
+
     // ===== Simple Object Deserialization =====
 
     [Benchmark]
@@ -123,6 +131,13 @@ public class SerializationBenchmarks
     public SimpleObject? FastJson_Deserialize_Simple()
     {
         return FastJson.Deserialize<SimpleObject>(_simpleJson);
+    }
+
+    [Benchmark]
+    [BenchmarkCategory("Simple", "Deserialize")]
+    public SimpleObject? FastJson_Inline_Deserialize_Simple()
+    {
+        return InlineFastJson.Deserialize<SimpleObject>(_simpleJson);
     }
 
     // ===== Complex Object Serialization =====
@@ -148,6 +163,13 @@ public class SerializationBenchmarks
         return FastJson.Serialize(_complexObject);
     }
 
+    [Benchmark]
+    [BenchmarkCategory("Complex", "Serialize")]
+    public string FastJson_Inline_Serialize_Complex()
+    {
+        return InlineFastJson.Serialize(_complexObject);
+    }
+
     // ===== Complex Object Deserialization =====
 
     [Benchmark]
@@ -169,6 +191,13 @@ public class SerializationBenchmarks
     public ComplexObject? FastJson_Deserialize_Complex()
     {
         return FastJson.Deserialize<ComplexObject>(_complexJson);
+    }
+
+    [Benchmark]
+    [BenchmarkCategory("Complex", "Deserialize")]
+    public ComplexObject? FastJson_Inline_Deserialize_Complex()
+    {
+        return InlineFastJson.Deserialize<ComplexObject>(_complexJson);
     }
 
     // ===== Large Collection Serialization =====
@@ -194,6 +223,13 @@ public class SerializationBenchmarks
         return FastJson.Serialize(_largeCollection);
     }
 
+    [Benchmark]
+    [BenchmarkCategory("Large", "Serialize")]
+    public string FastJson_Inline_Serialize_Large()
+    {
+        return InlineFastJson.Serialize(_largeCollection);
+    }
+
     // ===== Large Collection Deserialization =====
 
     [Benchmark]
@@ -215,5 +251,12 @@ public class SerializationBenchmarks
     public LargeCollection? FastJson_Deserialize_Large()
     {
         return FastJson.Deserialize<LargeCollection>(_largeJson);
+    }
+
+    [Benchmark]
+    [BenchmarkCategory("Large", "Deserialize")]
+    public LargeCollection? FastJson_Inline_Deserialize_Large()
+    {
+        return InlineFastJson.Deserialize<LargeCollection>(_largeJson);
     }
 }

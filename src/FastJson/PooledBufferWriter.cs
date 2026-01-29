@@ -7,7 +7,7 @@ namespace FastJson;
 /// A buffer writer that uses ArrayPool for efficient memory management.
 /// Reduces GC pressure by reusing byte arrays from the shared pool.
 /// </summary>
-internal sealed class PooledBufferWriter : IBufferWriter<byte>, IDisposable
+public sealed class PooledBufferWriter : IBufferWriter<byte>, IDisposable
 {
     private byte[] _buffer;
     private int _index;

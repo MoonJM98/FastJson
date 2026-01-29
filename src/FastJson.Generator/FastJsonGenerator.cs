@@ -147,13 +147,15 @@ public class FastJsonGenerator : IIncrementalGenerator
         var allTypesResult = allDirectTypes
             .Select(static (types, _) => TypeCollector.CollectAllTypesWithDiagnostics(types));
 
-        // Step 9: Combine types with options
-        var combined = allTypesResult.Combine(optionsProvider);
+        // Step 9: Combine types with options and assembly name
+        var combined = allTypesResult
+            .Combine(optionsProvider)
+            .Combine(context.CompilationProvider.Select(static (c, _) => c.AssemblyName ?? "Unknown"));
 
         // Step 10: Register source output - generate the serialization context
         context.RegisterSourceOutput(combined, static (spc, source) =>
         {
-            var (result, options) = source;
+            var ((result, options), assemblyName) = source;
 
             // Report diagnostic if type count limit was exceeded
             if (result.TypeCountExceeded)
@@ -180,7 +182,7 @@ public class FastJsonGenerator : IIncrementalGenerator
                 return;
 
             // Generate FastJsonContext.g.cs with all type info and module initializer
-            var contextCode = CodeEmitter.EmitContext(result.Types, options);
+            var contextCode = CodeEmitter.EmitContext(result.Types, options, assemblyName);
             spc.AddSource("FastJsonContext.g.cs", contextCode);
         });
     }
@@ -209,7 +211,7 @@ public class FastJsonGenerator : IIncrementalGenerator
         if (invocation.Expression is MemberAccessExpressionSyntax memberAccess)
         {
             var memberName = memberAccess.Name.Identifier.Text;
-            if (memberName is "Serialize" or "Deserialize" or "SerializeAsync" or "DeserializeAsync")
+            if (memberName is "Serialize" or "Deserialize" or "SerializeAsync" or "DeserializeAsync" or "SerializeToUtf8Bytes")
             {
                 // Check for simple FastJson.Method call
                 if (memberAccess.Expression is IdentifierNameSyntax identifier &&
@@ -432,7 +434,7 @@ public class FastJsonGenerator : IIncrementalGenerator
         {
             // Exclude FastJson.Serialize<T> - handled elsewhere
             var memberName = memberAccess.Name.Identifier.Text;
-            if (memberName is "Serialize" or "Deserialize" or "SerializeAsync" or "DeserializeAsync")
+            if (memberName is "Serialize" or "Deserialize" or "SerializeAsync" or "DeserializeAsync" or "SerializeToUtf8Bytes")
             {
                 return false;
             }

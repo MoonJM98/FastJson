@@ -50,8 +50,11 @@ public class Program
         Assert.Contains("FastJsonProps", contextCode);  // Pre-encoded property names
         Assert.Contains("PersonSerializer", contextCode);  // Type-specific serializer
         Assert.Contains("PersonDeserializer", contextCode);  // Type-specific deserializer
-        Assert.Contains("FastJsonWriter<", contextCode);  // Writer delegate registration
-        Assert.Contains("FastJsonReader<", contextCode);  // Reader delegate registration
+        Assert.Contains("FastJsonContext", contextCode);  // Context class
+        Assert.Contains("IFastJsonContext", contextCode);  // Implements interface
+        Assert.Contains("TryGetWriter", contextCode);  // Writer lookup method
+        Assert.Contains("TryGetReader", contextCode);  // Reader lookup method
+        Assert.Contains("RegisterContext", contextCode);  // Context registration in initializer
     }
 
     [Fact]
@@ -486,6 +489,8 @@ public class Program
         var assemblyPath = System.IO.Path.GetDirectoryName(typeof(object).Assembly.Location)!;
         references.Add(MetadataReference.CreateFromFile(System.IO.Path.Combine(assemblyPath, "System.Runtime.dll")));
         references.Add(MetadataReference.CreateFromFile(System.IO.Path.Combine(assemblyPath, "System.Collections.dll")));
+        references.Add(MetadataReference.CreateFromFile(System.IO.Path.Combine(assemblyPath, "System.Memory.dll")));
+        references.Add(MetadataReference.CreateFromFile(typeof(System.Buffers.IBufferWriter<>).Assembly.Location));
         references.Add(MetadataReference.CreateFromFile(typeof(System.Text.Encodings.Web.JavaScriptEncoder).Assembly.Location));
 
         var compilation = CSharpCompilation.Create(

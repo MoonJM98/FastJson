@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using InlineFastJson = FastJson.Generated.FastJson_Benchmarks.FastJson;
 
 namespace FastJson.Benchmarks;
 
@@ -24,6 +25,7 @@ public static class QuickBenchmark
             _ = JsonSerializer.Serialize(simple, reflectionOptions);
             _ = JsonSerializer.Serialize(simple, BenchmarkJsonContext.Default.SimpleObject);
             _ = global::FastJson.FastJson.Serialize(simple);
+            _ = InlineFastJson.Serialize(simple);
         }
 
         // STJ Reflection - Serialize
@@ -40,12 +42,19 @@ public static class QuickBenchmark
         sw.Stop();
         var stjSourceGenSerialize = sw.Elapsed.TotalNanoseconds / iterations;
 
-        // FastJson - Serialize
+        // FastJson (delegate) - Serialize
         sw.Restart();
         for (int i = 0; i < iterations; i++)
             _ = global::FastJson.FastJson.Serialize(simple);
         sw.Stop();
         var fastJsonSerialize = sw.Elapsed.TotalNanoseconds / iterations;
+
+        // FastJson Inline - Serialize
+        sw.Restart();
+        for (int i = 0; i < iterations; i++)
+            _ = InlineFastJson.Serialize(simple);
+        sw.Stop();
+        var fastJsonInlineSerialize = sw.Elapsed.TotalNanoseconds / iterations;
 
         // Warmup Deserialize
         for (int i = 0; i < warmup; i++)
@@ -53,6 +62,7 @@ public static class QuickBenchmark
             _ = JsonSerializer.Deserialize<SimpleObject>(simpleJson, reflectionOptions);
             _ = JsonSerializer.Deserialize(simpleJson, BenchmarkJsonContext.Default.SimpleObject);
             _ = global::FastJson.FastJson.Deserialize<SimpleObject>(simpleJson);
+            _ = InlineFastJson.Deserialize<SimpleObject>(simpleJson);
         }
 
         // STJ Reflection - Deserialize
@@ -69,30 +79,46 @@ public static class QuickBenchmark
         sw.Stop();
         var stjSourceGenDeserialize = sw.Elapsed.TotalNanoseconds / iterations;
 
-        // FastJson - Deserialize
+        // FastJson (delegate) - Deserialize
         sw.Restart();
         for (int i = 0; i < iterations; i++)
             _ = global::FastJson.FastJson.Deserialize<SimpleObject>(simpleJson);
         sw.Stop();
         var fastJsonDeserialize = sw.Elapsed.TotalNanoseconds / iterations;
 
+        // FastJson Inline - Deserialize
+        sw.Restart();
+        for (int i = 0; i < iterations; i++)
+            _ = InlineFastJson.Deserialize<SimpleObject>(simpleJson);
+        sw.Stop();
+        var fastJsonInlineDeserialize = sw.Elapsed.TotalNanoseconds / iterations;
+
         // Print results
         Console.WriteLine("SERIALIZE (SimpleObject):");
-        Console.WriteLine($"  STJ Reflection:  {stjReflectionSerialize,8:F1} ns/op");
-        Console.WriteLine($"  STJ SourceGen:   {stjSourceGenSerialize,8:F1} ns/op  ({stjSourceGenSerialize / stjReflectionSerialize:P0} of Reflection)");
-        Console.WriteLine($"  FastJson:        {fastJsonSerialize,8:F1} ns/op  ({fastJsonSerialize / stjReflectionSerialize:P0} of Reflection)");
+        Console.WriteLine($"  STJ Reflection:    {stjReflectionSerialize,8:F1} ns/op");
+        Console.WriteLine($"  STJ SourceGen:     {stjSourceGenSerialize,8:F1} ns/op  ({stjSourceGenSerialize / stjReflectionSerialize:P0} of Reflection)");
+        Console.WriteLine($"  FastJson Delegate: {fastJsonSerialize,8:F1} ns/op  ({fastJsonSerialize / stjReflectionSerialize:P0} of Reflection)");
+        Console.WriteLine($"  FastJson Inline:   {fastJsonInlineSerialize,8:F1} ns/op  ({fastJsonInlineSerialize / stjReflectionSerialize:P0} of Reflection)");
         Console.WriteLine();
         Console.WriteLine("DESERIALIZE (SimpleObject):");
-        Console.WriteLine($"  STJ Reflection:  {stjReflectionDeserialize,8:F1} ns/op");
-        Console.WriteLine($"  STJ SourceGen:   {stjSourceGenDeserialize,8:F1} ns/op  ({stjSourceGenDeserialize / stjReflectionDeserialize:P0} of Reflection)");
-        Console.WriteLine($"  FastJson:        {fastJsonDeserialize,8:F1} ns/op  ({fastJsonDeserialize / stjReflectionDeserialize:P0} of Reflection)");
+        Console.WriteLine($"  STJ Reflection:    {stjReflectionDeserialize,8:F1} ns/op");
+        Console.WriteLine($"  STJ SourceGen:     {stjSourceGenDeserialize,8:F1} ns/op  ({stjSourceGenDeserialize / stjReflectionDeserialize:P0} of Reflection)");
+        Console.WriteLine($"  FastJson Delegate: {fastJsonDeserialize,8:F1} ns/op  ({fastJsonDeserialize / stjReflectionDeserialize:P0} of Reflection)");
+        Console.WriteLine($"  FastJson Inline:   {fastJsonInlineDeserialize,8:F1} ns/op  ({fastJsonInlineDeserialize / stjReflectionDeserialize:P0} of Reflection)");
         Console.WriteLine();
 
         // FastJson overhead
-        var serializeOverhead = (fastJsonSerialize - stjSourceGenSerialize) / stjSourceGenSerialize * 100;
-        var deserializeOverhead = (fastJsonDeserialize - stjSourceGenDeserialize) / stjSourceGenDeserialize * 100;
-        Console.WriteLine($"FastJson overhead vs STJ SourceGen:");
+        Console.WriteLine("FastJson Inline vs STJ SourceGen:");
+        var serializeOverhead = (fastJsonInlineSerialize - stjSourceGenSerialize) / stjSourceGenSerialize * 100;
+        var deserializeOverhead = (fastJsonInlineDeserialize - stjSourceGenDeserialize) / stjSourceGenDeserialize * 100;
         Console.WriteLine($"  Serialize:   {serializeOverhead:+0.0;-0.0}%");
         Console.WriteLine($"  Deserialize: {deserializeOverhead:+0.0;-0.0}%");
+
+        Console.WriteLine();
+        Console.WriteLine("FastJson Inline vs Delegate:");
+        var inlineVsDelegateSerialize = (fastJsonInlineSerialize - fastJsonSerialize) / fastJsonSerialize * 100;
+        var inlineVsDelegateDeserialize = (fastJsonInlineDeserialize - fastJsonDeserialize) / fastJsonDeserialize * 100;
+        Console.WriteLine($"  Serialize:   {inlineVsDelegateSerialize:+0.0;-0.0}%");
+        Console.WriteLine($"  Deserialize: {inlineVsDelegateDeserialize:+0.0;-0.0}%");
     }
 }
